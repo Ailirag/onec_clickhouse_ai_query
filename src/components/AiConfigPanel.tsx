@@ -18,6 +18,8 @@ const YANDEX_MODELS = [
   { id: "yandexgpt/latest", name: "YandexGPT 3 Pro (Основная)" },
   { id: "yandexgpt-lite/latest", name: "YandexGPT 3 Lite (Быстрая)" },
   { id: "yandexgpt/prestable", name: "YandexGPT Prestable (Тестовая)" },
+  { id: "deepseek-v4-flash/latest", name: "DeepSeek V4 Flash (Responses API)" },
+  { id: "gpt-oss-120b/latest", name: "GPT OSS 120B (Responses API)" },
   { id: "custom", name: "Указать свой Model URI (Кастомный)" }
 ];
 
@@ -287,7 +289,7 @@ export default function AiConfigPanel({ config, onConfigChange, role }: AiConfig
                 id="yandex-custom-uri-input"
               />
               <p className="text-[10px] text-slate-400 mt-1 leading-normal">
-                Например: <code className="bg-slate-100 px-1 py-0.5 rounded font-mono">gpt://&lt;folder_id&gt;/deepseek-v4-flash/latest</code>
+                Например: <code className="bg-slate-100 px-1 py-0.5 rounded font-mono">gpt://&lt;folder_id&gt;/gpt-oss-120b/latest</code>
               </p>
             </div>
           )}

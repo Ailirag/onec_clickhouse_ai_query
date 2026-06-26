@@ -722,6 +722,31 @@ function normalizeYandexModelUri(yandexModel: string, yandexFolderId: string) {
   return `gpt://${folderId}/${model.replace(/^\/+/, "")}`;
 }
 
+function shouldUseYandexResponsesApi(modelUri: string) {
+  if (!modelUri.startsWith("gpt://")) return false;
+
+  const parts = modelUri.slice("gpt://".length).split("/").filter(Boolean);
+  const modelName = parts.length >= 2 ? parts[1] : parts[0];
+  return !modelName.startsWith("yandexgpt");
+}
+
+function extractYandexResponsesText(json: any) {
+  if (typeof json.output_text === "string" && json.output_text.trim()) {
+    return json.output_text;
+  }
+
+  const chunks: string[] = [];
+  for (const item of json.output || []) {
+    for (const content of item.content || []) {
+      if (typeof content.text === "string" && content.text.trim()) {
+        chunks.push(content.text);
+      }
+    }
+  }
+
+  return chunks.join("\n").trim();
+}
+
 const callYandexGpt = async (systemPrompt: string, userPrompt: string, aiConfig: any): Promise<string> => {
   const { yandexApiKey, yandexFolderId, yandexModel } = aiConfig || {};
   
@@ -733,6 +758,43 @@ const callYandexGpt = async (systemPrompt: string, userPrompt: string, aiConfig:
   }
 
   const modelUri = normalizeYandexModelUri(yandexModel, yandexFolderId);
+  const useResponsesApi = shouldUseYandexResponsesApi(modelUri);
+
+  if (useResponsesApi) {
+    const url = "https://ai.api.cloud.yandex.net/v1/responses";
+    const body = {
+      model: modelUri,
+      input: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt }
+      ],
+      temperature: 0.2,
+      max_output_tokens: 4000
+    };
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Api-Key ${yandexApiKey}`,
+        "x-folder-id": yandexFolderId
+      },
+      body: JSON.stringify(body)
+    });
+    const text = await response.text();
+
+    if (!response.ok) {
+      throw new Error(`Yandex Responses API Error (${response.status}): ${text}\n\nДиагностика YandexGPT: ${JSON.stringify({ endpoint: url, modelUri })}`);
+    }
+
+    const json: any = JSON.parse(text);
+    const textResult = extractYandexResponsesText(json);
+    if (!textResult) {
+      throw new Error(`Не удалось получить текст от Yandex Responses API. Тело ответа: ${JSON.stringify(json)}`);
+    }
+
+    return textResult;
+  }
 
   const url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion";
   
@@ -758,13 +820,13 @@ const callYandexGpt = async (systemPrompt: string, userPrompt: string, aiConfig:
     },
     body: JSON.stringify(body)
   });
+  const text = await response.text();
 
   if (!response.ok) {
-    const text = await response.text();
     throw new Error(`YandexGPT API Error (${response.status}): ${text}\n\nДиагностика YandexGPT: ${JSON.stringify({ modelUri })}`);
   }
 
-  const json: any = await response.json();
+  const json: any = JSON.parse(text);
   const textResult = json.result?.alternatives?.[0]?.message?.text;
   if (!textResult) {
     throw new Error(`Не удалось получить ответ от YandexGPT. Тело ответа: ${JSON.stringify(json)}`);
