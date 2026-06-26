@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { KeyRound, Shield, User, CheckCircle, AlertCircle, RefreshCw } from "lucide-react";
+import { readJsonResponse } from "../api";
 
 interface AdminPasswordManagerProps {
   role: string;
@@ -34,7 +35,7 @@ export default function AdminPasswordManager({ role }: AdminPasswordManagerProps
         })
       });
 
-      const data = await response.json();
+      const data = await readJsonResponse(response);
       if (response.ok && data.success) {
         setStatus({ success: true, message: data.message });
         setNewPassword("");

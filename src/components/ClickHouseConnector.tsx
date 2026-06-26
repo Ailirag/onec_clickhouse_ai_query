@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { ClickHouseConfig, UserRole } from "../types";
 import { Database, Shield, CheckCircle, AlertTriangle, Play, Lock } from "lucide-react";
+import { readJsonResponse } from "../api";
 
 interface ClickHouseConnectorProps {
   onConfigChange: (config: ClickHouseConfig, isDemo: boolean) => void;
@@ -54,7 +55,7 @@ export default function ClickHouseConnector({
           isDemo
         })
       });
-      const data = await response.json();
+      const data = await readJsonResponse(response);
       if (data.success) {
         setStatus({ success: true, message: data.message });
       } else {

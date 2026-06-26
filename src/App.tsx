@@ -9,6 +9,7 @@ import AiConfigPanel from "./components/AiConfigPanel";
 import ServerInstructionsModal from "./components/ServerInstructionsModal";
 import AdminPasswordManager from "./components/AdminPasswordManager";
 import { Server, Sparkles, History, Clock, ChevronRight, CornerDownRight, Database, HelpCircle, User, Shield, Lock, Unlock, KeyRound, X, LogOut, AlertCircle } from "lucide-react";
+import { readJsonResponse } from "./api";
 
 const DEFAULT_CONFIG: ClickHouseConfig = {
   host: "localhost",
@@ -89,7 +90,7 @@ export default function App() {
         }
       })
       .then((res) => {
-        if (res.ok) return res.json();
+        if (res.ok) return readJsonResponse(res);
         throw new Error();
       })
       .then((data) => {
@@ -137,7 +138,7 @@ export default function App() {
         },
         body: JSON.stringify({ config, isDemo: isDemoMode })
       });
-      const data = await response.json();
+      const data = await readJsonResponse(response);
       if (data.success) {
         setDbSchema(data.schema);
       } else {
@@ -182,7 +183,7 @@ export default function App() {
         })
       });
 
-      const result: QueryResult = await response.json();
+      const result: QueryResult = await readJsonResponse(response);
       setQueryResult(result);
       setRunningQuery(false);
 
@@ -204,7 +205,7 @@ export default function App() {
           })
         });
 
-        const analysisData = await analysisResponse.json();
+        const analysisData = await readJsonResponse(analysisResponse);
         if (analysisData.success) {
           setQueryAnalysis(analysisData.analysis);
 
@@ -253,7 +254,7 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role: loginRole, password: loginPasswordInput })
       });
-      const data = await response.json();
+      const data = await readJsonResponse(response);
       if (response.ok && data.success) {
         localStorage.setItem("auth_token", data.token);
         localStorage.setItem("user_role", data.role);

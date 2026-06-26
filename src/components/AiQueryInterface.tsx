@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Sparkles, Terminal, ChevronRight, Play, AlertCircle, HelpCircle, Code } from "lucide-react";
 import { DbSchema, AiConfig } from "../types";
+import { readJsonResponse } from "../api";
 
 interface AiQueryInterfaceProps {
   schema: DbSchema | null;
@@ -69,7 +70,7 @@ export default function AiQueryInterface({
           aiConfig
         })
       });
-      const data = await response.json();
+      const data = await readJsonResponse(response);
       if (data.success) {
         setGeneratedSql(data.sql);
         setExplanation(data.explanation);

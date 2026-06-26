@@ -190,7 +190,7 @@ app.get("/api/auth/verify", (req: any, res: any) => {
   res.json({ success: true, role: req.user.role });
 });
 
-const PORT = 3000;
+const PORT = Number(process.env.PORT || 3000);
 
 // Initialize Gemini Client
 const ai = new GoogleGenAI({
@@ -447,7 +447,18 @@ const executeClickHouseQuery = async (config: ClickHouseConfig, query: string): 
       };
     }
 
-    const json = await response.json();
+    const text = await response.text();
+    let json: any;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      return {
+        success: false,
+        sql: query,
+        error: `ClickHouse вернул не JSON (${response.status}): ${text.slice(0, 500)}`,
+        elapsedMs
+      };
+    }
     const columns = json.meta?.map((m: any) => m.name) || [];
     const columnTypes: Record<string, string> = {};
     json.meta?.forEach((m: any) => {
