@@ -126,9 +126,12 @@ function buildClickHouseUrl(config: ClickHouseConfig) {
   }
 
   let hostClean = rawHost;
+  let path = "/";
   let portClean = config.port;
 
   if (hostClean.includes("/")) {
+    const slashIndex = hostClean.indexOf("/");
+    path = hostClean.slice(slashIndex) || "/";
     const parts = hostClean.split("/");
     hostClean = parts[0];
   }
@@ -143,9 +146,17 @@ function buildClickHouseUrl(config: ClickHouseConfig) {
   }
 
   const protocol = config.useHttps ? "https" : "http";
-  const url = new URL(`${protocol}://${hostClean}:${portClean || (config.useHttps ? 443 : 8123)}/`);
+  const url = new URL(`${protocol}://${hostClean}:${portClean || (config.useHttps ? 443 : 8123)}${path}`);
   url.searchParams.set("database", config.database || "default");
   url.searchParams.set("default_format", "JSON");
+  return url.toString();
+}
+
+function redactClickHouseUrl(rawUrl: string) {
+  const url = new URL(rawUrl);
+  if (url.searchParams.has("password")) {
+    url.searchParams.set("password", "***");
+  }
   return url.toString();
 }
 
@@ -426,6 +437,13 @@ const executeClickHouseQuery = async (config: ClickHouseConfig, query: string): 
   const start = Date.now();
   try {
     const url = buildClickHouseUrl(config);
+    const diagnostics = {
+      endpoint: redactClickHouseUrl(url),
+      username: config.username || "(empty)",
+      hasPassword: Boolean(config.password),
+      database: config.database || "default",
+      useHttps: Boolean(config.useHttps)
+    };
 
     const headers: Record<string, string> = {
       "Content-Type": "text/plain"
@@ -437,7 +455,6 @@ const executeClickHouseQuery = async (config: ClickHouseConfig, query: string): 
     if (config.password) {
       headers["X-ClickHouse-Key"] = config.password;
     }
-
     const response = await fetch(url, {
       method: "POST",
       headers,
@@ -451,7 +468,7 @@ const executeClickHouseQuery = async (config: ClickHouseConfig, query: string): 
       return {
         success: false,
         sql: query,
-        error: `ClickHouse Error (${response.status}): ${errText}`,
+        error: `ClickHouse Error (${response.status}): ${errText}\n\nДиагностика подключения: ${JSON.stringify(diagnostics)}`,
         elapsedMs
       };
     }
@@ -464,7 +481,7 @@ const executeClickHouseQuery = async (config: ClickHouseConfig, query: string): 
       return {
         success: false,
         sql: query,
-        error: `ClickHouse вернул не JSON (${response.status}): ${text.slice(0, 500)}`,
+        error: `ClickHouse вернул не JSON (${response.status}): ${text.slice(0, 500)}\n\nДиагностика подключения: ${JSON.stringify(diagnostics)}`,
         elapsedMs
       };
     }
