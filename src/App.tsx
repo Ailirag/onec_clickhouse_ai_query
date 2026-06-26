@@ -567,7 +567,7 @@ export default function App() {
             schema={dbSchema}
             loading={loadingSchema}
             error={schemaError}
-            onRefresh={fetchSchema}
+            onRefresh={() => fetchSchema()}
           />
         </section>
 
