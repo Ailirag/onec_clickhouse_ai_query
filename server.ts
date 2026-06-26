@@ -696,6 +696,32 @@ app.post("/api/clickhouse/query", async (req, res) => {
 });
 
 // Helper to execute completion requests on YandexGPT
+function normalizeYandexModelUri(yandexModel: string, yandexFolderId: string) {
+  const model = String(yandexModel || "").trim();
+  const folderId = String(yandexFolderId || "").trim();
+
+  if (!model) {
+    throw new Error("Модель YandexGPT не заполнена. Выберите модель или укажите Model URI.");
+  }
+
+  if (model.startsWith("ds://")) {
+    return model;
+  }
+
+  if (model.startsWith("gpt://")) {
+    const uriBody = model.slice("gpt://".length).replace(/^\/+/, "");
+    const parts = uriBody.split("/").filter(Boolean);
+
+    if (parts.length < 3 && folderId) {
+      return `gpt://${folderId}/${uriBody}`;
+    }
+
+    return model;
+  }
+
+  return `gpt://${folderId}/${model.replace(/^\/+/, "")}`;
+}
+
 const callYandexGpt = async (systemPrompt: string, userPrompt: string, aiConfig: any): Promise<string> => {
   const { yandexApiKey, yandexFolderId, yandexModel } = aiConfig || {};
   
@@ -706,11 +732,7 @@ const callYandexGpt = async (systemPrompt: string, userPrompt: string, aiConfig:
     throw new Error("Folder ID не заполнен. Заполните его в панели настроек AI.");
   }
 
-  // Construct modelUri
-  let modelUri = yandexModel;
-  if (!modelUri.startsWith("gpt://") && !modelUri.startsWith("ds://")) {
-    modelUri = `gpt://${yandexFolderId}/${yandexModel}`;
-  }
+  const modelUri = normalizeYandexModelUri(yandexModel, yandexFolderId);
 
   const url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion";
   
@@ -739,7 +761,7 @@ const callYandexGpt = async (systemPrompt: string, userPrompt: string, aiConfig:
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`YandexGPT API Error (${response.status}): ${text}`);
+    throw new Error(`YandexGPT API Error (${response.status}): ${text}\n\nДиагностика YandexGPT: ${JSON.stringify({ modelUri })}`);
   }
 
   const json: any = await response.json();

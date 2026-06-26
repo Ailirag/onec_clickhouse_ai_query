@@ -282,12 +282,12 @@ export default function AiConfigPanel({ config, onConfigChange, role }: AiConfig
                 className={`w-full px-3.5 py-2 rounded-lg border border-slate-200 bg-slate-50/50 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 transition-all placeholder:text-slate-400 ${
                   isLocked ? "opacity-75 cursor-not-allowed bg-slate-100" : ""
                 }`}
-                placeholder="gpt://b1g.../yandexgpt/latest"
+                placeholder="gpt://b1g.../deepseek-v4-flash/latest или deepseek-v4-flash/latest"
                 required
                 id="yandex-custom-uri-input"
               />
               <p className="text-[10px] text-slate-400 mt-1 leading-normal">
-                Например: <code className="bg-slate-100 px-1 py-0.5 rounded font-mono">gpt://&lt;folder_id&gt;/yandexgpt/latest</code>
+                Например: <code className="bg-slate-100 px-1 py-0.5 rounded font-mono">gpt://&lt;folder_id&gt;/deepseek-v4-flash/latest</code>
               </p>
             </div>
           )}
