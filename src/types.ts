@@ -15,6 +15,7 @@ export interface ColumnInfo {
 
 export interface TableInfo {
   name: string;
+  database?: string;
   columns: ColumnInfo[];
   rowCount?: number;
   sampleRows?: any[];
@@ -34,6 +35,11 @@ export interface QueryResult {
   error?: string;
   elapsedMs?: number;
   rowCount?: number;
+  repair?: {
+    originalSql: string;
+    originalError?: string;
+    explanation?: string;
+  };
 }
 
 export interface QueryAnalysis {

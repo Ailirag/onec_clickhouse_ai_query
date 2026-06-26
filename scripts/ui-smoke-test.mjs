@@ -2,8 +2,9 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-const root = path.resolve(new URL("..", import.meta.url).pathname.slice(1));
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const port = Number(process.env.UI_SMOKE_APP_PORT || 3100);
 const chromePort = Number(process.env.UI_SMOKE_CHROME_PORT || 9223);
 const chromePath = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
@@ -54,12 +55,11 @@ async function main() {
     throw new Error(`Chrome not found at ${chromePath}`);
   }
 
-  const server = externalProcesses ? null : spawn("C:\\Windows\\System32\\cmd.exe", ["/c", "node", "dist/server.cjs"], {
-    cwd: root,
-    env: { ...process.env, PORT: String(port), NODE_ENV: "production" },
-    stdio: "pipe",
-    windowsHide: true
-  });
+  if (!externalProcesses) {
+    process.env.PORT = String(port);
+    process.env.NODE_ENV = "production";
+    await import(pathToFileURL(path.join(root, "dist", "server.cjs")).href);
+  }
 
   const chrome = externalProcesses ? null : spawn(chromePath, [
     `--remote-debugging-port=${chromePort}`,
@@ -71,6 +71,9 @@ async function main() {
   ], {
     stdio: "ignore",
     windowsHide: true
+  });
+  chrome?.once("error", (error) => {
+    console.error(`failed to start chrome: ${error.message}`);
   });
 
   try {
@@ -180,11 +183,12 @@ async function main() {
     ws.close();
   } finally {
     chrome?.kill();
-    server?.kill();
   }
 }
 
-main().catch((error) => {
+main().then(() => {
+  process.exit(0);
+}).catch((error) => {
   console.error(error);
-  process.exitCode = 1;
+  process.exit(1);
 });

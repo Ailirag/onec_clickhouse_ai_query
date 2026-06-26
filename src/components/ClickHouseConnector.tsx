@@ -5,6 +5,7 @@ import { readJsonResponse } from "../api";
 
 interface ClickHouseConnectorProps {
   onConfigChange: (config: ClickHouseConfig, isDemo: boolean) => void;
+  onConnectionVerified?: (config: ClickHouseConfig, isDemo: boolean) => void;
   activeConfig: ClickHouseConfig;
   isDemoMode: boolean;
   role: UserRole;
@@ -12,6 +13,7 @@ interface ClickHouseConnectorProps {
 
 export default function ClickHouseConnector({
   onConfigChange,
+  onConnectionVerified,
   activeConfig,
   isDemoMode,
   role
@@ -58,6 +60,7 @@ export default function ClickHouseConnector({
       const data = await readJsonResponse(response);
       if (data.success) {
         setStatus({ success: true, message: data.message });
+        onConnectionVerified?.({ host, port, username, password, database, useHttps }, isDemo);
       } else {
         setStatus({ success: false, message: data.error || "Не удалось установить соединение." });
       }

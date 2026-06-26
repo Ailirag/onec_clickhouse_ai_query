@@ -100,6 +100,15 @@ export default function QueryResultViewer({ result, loading }: QueryResultViewer
         </div>
       </div>
 
+      {result.repair && (
+        <div className="px-6 py-3 bg-amber-50 border-b border-amber-100 text-xs text-amber-900">
+          <div className="font-semibold mb-1">SQL was automatically repaired after a ClickHouse error.</div>
+          {result.repair.explanation && (
+            <div className="leading-normal">{result.repair.explanation}</div>
+          )}
+        </div>
+      )}
+
       {filteredRows.length === 0 ? (
         <div className="text-center py-12 text-slate-400 text-xs" id="result-empty-search">
           Ничего не найдено по фильтру "{searchTerm}"

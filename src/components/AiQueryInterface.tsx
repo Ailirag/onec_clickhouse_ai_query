@@ -51,6 +51,10 @@ export default function AiQueryInterface({
 
   const handleGenerateSql = async (qText: string) => {
     if (!qText.trim()) return;
+    if (!schema?.tables?.length) {
+      setError("ClickHouse schema is empty. Check the connection and refresh the table list before generating SQL.");
+      return;
+    }
     setGenerating(true);
     setError(null);
     setGeneratedSql("");
@@ -126,9 +130,10 @@ export default function AiQueryInterface({
             />
             <button
               type="submit"
-              disabled={generating || loading || !question.trim()}
+              disabled={generating || loading || !question.trim() || !schema?.tables?.length}
               className="absolute right-2 top-2 px-4 py-2 bg-violet-600 hover:bg-violet-700 disabled:bg-slate-200 text-white disabled:text-slate-400 rounded-lg text-xs font-semibold tracking-wide transition-colors flex items-center gap-1.5 shadow-sm"
               id="generate-sql-btn"
+              title={!schema?.tables?.length ? "Refresh ClickHouse schema before generating SQL" : undefined}
             >
               {generating ? (
                 <>
@@ -157,7 +162,7 @@ export default function AiQueryInterface({
             <button
               key={idx}
               onClick={() => handleQuickQuestion(item.text)}
-              disabled={generating || loading}
+              disabled={generating || loading || !schema?.tables?.length}
               className="flex flex-col items-start text-left p-3 border border-slate-100 rounded-xl hover:border-violet-200 hover:bg-violet-50/10 transition-all group disabled:opacity-50"
               id={`quick-q-${idx}`}
             >

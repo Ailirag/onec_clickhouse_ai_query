@@ -123,7 +123,10 @@ export default function App() {
   }, [history]);
 
   // Load Schema on mount or config/mode/auth change
-  const fetchSchema = async () => {
+  const fetchSchema = async (
+    overrideConfig: ClickHouseConfig = config,
+    overrideIsDemo: boolean = isDemoMode
+  ) => {
     const token = localStorage.getItem("auth_token") || authToken;
     if (!token || !isAuthenticated) return;
 
@@ -136,7 +139,7 @@ export default function App() {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
         },
-        body: JSON.stringify({ config, isDemo: isDemoMode })
+        body: JSON.stringify({ config: overrideConfig, isDemo: overrideIsDemo })
       });
       const data = await readJsonResponse(response);
       if (data.success) {
@@ -162,6 +165,12 @@ export default function App() {
     setIsDemoMode(demo);
   };
 
+  const handleConnectionVerified = (verifiedConfig: ClickHouseConfig, demo: boolean) => {
+    setConfig(verifiedConfig);
+    setIsDemoMode(demo);
+    fetchSchema(verifiedConfig, demo);
+  };
+
   const handleRunQuery = async (sql: string, question: string) => {
     const token = localStorage.getItem("auth_token") || authToken;
     setRunningQuery(true);
@@ -179,7 +188,10 @@ export default function App() {
         body: JSON.stringify({
           config,
           query: sql,
-          isDemo: isDemoMode
+          isDemo: isDemoMode,
+          question,
+          schema: dbSchema,
+          aiConfig
         })
       });
 
@@ -198,7 +210,7 @@ export default function App() {
           },
           body: JSON.stringify({
             question,
-            sql,
+            sql: result.sql || sql,
             resultRows: result.rows,
             columns: result.columns,
             aiConfig
@@ -214,7 +226,7 @@ export default function App() {
             id: String(Date.now()),
             timestamp: new Date().toLocaleTimeString(),
             question,
-            sql,
+            sql: result.sql || sql,
             result,
             analysis: analysisData.analysis
           };
@@ -480,6 +492,7 @@ export default function App() {
         <section className="lg:col-span-4 space-y-8">
           <ClickHouseConnector
             onConfigChange={handleConfigChange}
+            onConnectionVerified={handleConnectionVerified}
             activeConfig={config}
             isDemoMode={isDemoMode}
             role={userRole}

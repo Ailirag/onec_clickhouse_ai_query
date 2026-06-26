@@ -86,6 +86,14 @@ function quoteClickHouseIdentifier(value: string) {
   return `\`${name.replace(/`/g, "``")}\``;
 }
 
+function quoteClickHouseTable(database: string, table: string) {
+  return `${quoteClickHouseIdentifier(database)}.${quoteClickHouseIdentifier(table)}`;
+}
+
+function schemaTableName(database: string, table: string, selectedDatabase: string) {
+  return database === selectedDatabase ? table : `${database}.${table}`;
+}
+
 function stripSqlComments(query: string) {
   return query
     .replace(/--.*$/gm, "")
@@ -561,21 +569,35 @@ app.post("/api/clickhouse/schema", async (req, res) => {
 
   // Fetch real tables and columns
   try {
-    const databaseLiteral = escapeClickHouseString(config.database || "default");
-    // Query to show tables
-    const tablesQuery = `SELECT name FROM system.tables WHERE database = '${databaseLiteral}' AND is_temporary = 0`;
+    const selectedDatabase = config.database || "default";
+    const selectedDatabaseLiteral = escapeClickHouseString(selectedDatabase);
+    const tablesQuery = `
+      SELECT database, name
+      FROM system.tables
+      WHERE is_temporary = 0
+        AND database NOT IN ('system', 'INFORMATION_SCHEMA', 'information_schema')
+      ORDER BY if(database = '${selectedDatabaseLiteral}', 0, 1), database, name
+      LIMIT 200
+    `;
     const tablesRes = await executeClickHouseQuery(config, tablesQuery);
 
     if (!tablesRes.success) {
       return res.status(500).json({ success: false, error: tablesRes.error });
     }
 
-    const tableNames = tablesRes.rows?.map((r: any) => r.name) || [];
+    const tableRefs = tablesRes.rows?.map((r: any) => ({
+      database: r.database || selectedDatabase,
+      name: r.name
+    })).filter((r: any) => r.name) || [];
     const tables: any[] = [];
 
-    for (const tableName of tableNames) {
+    for (const tableRef of tableRefs) {
+      const tableDatabase = tableRef.database;
+      const tableName = tableRef.name;
+      const databaseLiteral = escapeClickHouseString(tableDatabase);
       const tableLiteral = escapeClickHouseString(tableName);
-      const tableIdentifier = quoteClickHouseIdentifier(tableName);
+      const tableIdentifier = quoteClickHouseTable(tableDatabase, tableName);
+      const displayName = schemaTableName(tableDatabase, tableName, selectedDatabase);
       // Query columns
       const columnsQuery = `
         SELECT name, type, comment 
@@ -596,7 +618,8 @@ app.post("/api/clickhouse/schema", async (req, res) => {
       const isEventLog = colsRes.rows?.some((c: any) => c.name === "EventPresentation") && colsRes.rows?.some((c: any) => c.name === "SeverityPresentation");
 
       tables.push({
-        name: tableName,
+        name: displayName,
+        database: tableDatabase,
         columns: colsRes.rows?.map((c: any) => ({
           name: c.name,
           type: c.type,
@@ -616,7 +639,7 @@ app.post("/api/clickhouse/schema", async (req, res) => {
 
 // 3. Execute query
 app.post("/api/clickhouse/query", async (req, res) => {
-  const { config, query, isDemo } = req.body;
+  const { config, query, isDemo, question, schema, aiConfig } = req.body;
   if (!isReadOnlySql(query || "")) {
     return res.status(400).json({
       success: false,
@@ -692,6 +715,40 @@ app.post("/api/clickhouse/query", async (req, res) => {
 
   // Real ClickHouse execution
   const result = await executeClickHouseQuery(config, query);
+  if (!result.success && question && schema && aiConfig) {
+    try {
+      const repair = await repairSqlWithAi({
+        question,
+        failedSql: query,
+        error: result.error || "",
+        schema,
+        aiConfig
+      });
+
+      if (repair.sql && repair.sql.trim() !== query.trim()) {
+        if (!isReadOnlySql(repair.sql)) {
+          throw new Error("AI suggested non-read-only SQL, auto-repair was rejected.");
+        }
+
+        const repairedResult = await executeClickHouseQuery(config, repair.sql);
+        return res.json({
+          ...repairedResult,
+          sql: repair.sql,
+          repair: {
+            originalSql: query,
+            originalError: result.error,
+            explanation: repair.explanation
+          }
+        });
+      }
+    } catch (repairErr: any) {
+      return res.json({
+        ...result,
+        error: `${result.error}\n\nSQL auto-repair failed: ${repairErr.message || repairErr}`
+      });
+    }
+  }
+
   res.json(result);
 });
 
@@ -855,16 +912,105 @@ function extractAndParseJson(text: string): any {
   }
 }
 
+async function requestAiJson(systemPrompt: string, userPrompt: string, aiConfig: any) {
+  if (aiConfig && aiConfig.provider === "yandexgpt") {
+    const responseText = await callYandexGpt(systemPrompt, userPrompt, aiConfig);
+    return extractAndParseJson(responseText);
+  }
+
+  const selectedModel = aiConfig?.geminiModel || GEMINI_MODEL;
+  const response = await ai.models.generateContent({
+    model: selectedModel,
+    contents: `${systemPrompt}\n\n${userPrompt}`,
+    config: {
+      responseMimeType: "application/json"
+    }
+  });
+
+  return JSON.parse(response.text?.trim() || "{}");
+}
+
+async function repairSqlWithAi({
+  question,
+  failedSql,
+  error,
+  schema,
+  aiConfig
+}: {
+  question: string;
+  failedSql: string;
+  error: string;
+  schema: any;
+  aiConfig: any;
+}) {
+  const tableNames = (schema?.tables || []).map((table: any) => table.name).filter(Boolean);
+  if (!tableNames.length) {
+    throw new Error("ClickHouse schema is empty. Refresh the table list before repairing SQL.");
+  }
+
+  const systemPrompt = `You are a ClickHouse SQL reviewer. Repair a failed read-only SELECT/WITH/SHOW/DESCRIBE/EXPLAIN query using only the real schema. Return JSON only.`;
+  const userPrompt = `User question:
+"${question}"
+
+Available tables. Use table names exactly as listed:
+${JSON.stringify(tableNames)}
+
+Full schema:
+${JSON.stringify(schema)}
+
+Failed SQL:
+\`\`\`sql
+${failedSql}
+\`\`\`
+
+ClickHouse error:
+${error}
+
+Rules:
+1. Do not use any table that is not in the available table list.
+2. If the error is UNKNOWN_TABLE, choose the best matching table by columns and sampleRows.
+3. Do not use EventLogItems unless EventLogItems appears in the available table list.
+4. Before answering, verify every table reference in SQL exists in the available table list.
+5. Return JSON with "sql" and "explanation".
+
+Format:
+{"sql":"SELECT ...","explanation":"..."}`;
+
+  const parsed = await requestAiJson(systemPrompt, userPrompt, aiConfig);
+  return {
+    sql: String(parsed.sql || "").trim(),
+    explanation: parsed.explanation ? String(parsed.explanation) : undefined
+  };
+}
+
 // 4. Generate SQL from natural language
 app.post("/api/gemini/generate-sql", async (req, res) => {
   const { question, schema, isDemo, aiConfig } = req.body;
 
   try {
+    const tableNames = (schema?.tables || []).map((table: any) => table.name).filter(Boolean);
+    if (!tableNames.length) {
+      return res.status(400).json({
+        success: false,
+        error: "ClickHouse schema is empty. Check the connection and refresh the table list before generating SQL."
+      });
+    }
+
     const systemPrompt = `Вы — опытный аналитик баз данных и специалист по ClickHouse и 1С:Предприятие.
 Ваша задача — перевести вопрос пользователя на естественном языке в валидный ClickHouse SQL-запрос.`;
 
     const userPrompt = `Описание таблиц в базе данных:
+Available ClickHouse table names. Use table names exactly as listed here:
+${JSON.stringify(tableNames)}
+
+Full ClickHouse schema:
 ${JSON.stringify(schema)}
+
+Strict table rules:
+1. Use only tables from the available table list.
+2. Use table names exactly as listed, including database-qualified names like database.table.
+3. Do not use EventLogItems unless EventLogItems appears in the available table list.
+4. Before returning JSON, verify every table reference in SQL exists in the available table list.
 
 Инструкции по генерации SQL для ClickHouse:
 1. Используйте ТОЛЬКО те таблицы и колонки, которые описаны в схеме.
@@ -888,24 +1034,8 @@ ${JSON.stringify(schema)}
   "explanation": "..."
 }`;
 
-    if (aiConfig && aiConfig.provider === "yandexgpt") {
-      const responseText = await callYandexGpt(systemPrompt, userPrompt, aiConfig);
-      const result = extractAndParseJson(responseText);
-      res.json({ success: true, sql: result.sql, explanation: result.explanation });
-    } else {
-      // Default to Gemini
-      const selectedModel = aiConfig?.geminiModel || GEMINI_MODEL;
-      const response = await ai.models.generateContent({
-        model: selectedModel,
-        contents: `${systemPrompt}\n\n${userPrompt}`,
-        config: {
-          responseMimeType: "application/json"
-        }
-      });
-
-      const result = JSON.parse(response.text?.trim() || "{}");
-      res.json({ success: true, sql: result.sql, explanation: result.explanation });
-    }
+    const result = await requestAiJson(systemPrompt, userPrompt, aiConfig);
+    res.json({ success: true, sql: result.sql, explanation: result.explanation });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message || err });
   }
