@@ -114,9 +114,17 @@ function buildClickHouseUrl(config: ClickHouseConfig) {
     throw new Error("Не указан адрес ClickHouse");
   }
 
+  const isGrandtradeJournalsHost = (host: string) => host.toLowerCase() === "ones-journals.corp.grandtrade.world";
+
   const hasProtocol = /^[a-z][a-z0-9+.-]*:\/\//i.test(rawHost);
   if (hasProtocol) {
     const url = new URL(rawHost);
+    if (isGrandtradeJournalsHost(url.hostname) && (url.pathname === "" || url.pathname === "/")) {
+      url.pathname = "/data";
+    }
+    if (isGrandtradeJournalsHost(url.hostname) && url.protocol === "https:" && url.port === "8123") {
+      url.port = "";
+    }
     if (url.pathname === "") {
       url.pathname = "/";
     }
@@ -147,9 +155,15 @@ function buildClickHouseUrl(config: ClickHouseConfig) {
     }
   }
 
+  if (!hasPath && isGrandtradeJournalsHost(hostClean)) {
+    path = "/data";
+    hasPath = true;
+  }
+
   const shouldInferHttpsProxy = hasPath && !config.useHttps && (!portClean || portClean === 8123);
+  const shouldUseGrandtradeProxyPort = isGrandtradeJournalsHost(hostClean) && (config.useHttps || shouldInferHttpsProxy) && (!portClean || portClean === 8123);
   const protocol = config.useHttps || shouldInferHttpsProxy ? "https" : "http";
-  const port = shouldInferHttpsProxy ? 443 : (portClean || (config.useHttps ? 443 : 8123));
+  const port = shouldUseGrandtradeProxyPort || shouldInferHttpsProxy ? 443 : (portClean || (config.useHttps ? 443 : 8123));
   const url = new URL(`${protocol}://${hostClean}:${port}${path}`);
   url.searchParams.set("database", config.database || "default");
   url.searchParams.set("default_format", "JSON");
