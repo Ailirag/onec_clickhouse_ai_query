@@ -108,6 +108,47 @@ function isReadOnlySql(query: string) {
   return !/\b(INSERT|ALTER|CREATE|DROP|TRUNCATE|OPTIMIZE|KILL|SYSTEM|ATTACH|DETACH|RENAME|EXCHANGE|REPLACE|GRANT|REVOKE|SET|INTO\s+OUTFILE)\b/i.test(withoutTrailingSemicolon);
 }
 
+function buildClickHouseUrl(config: ClickHouseConfig) {
+  const rawHost = (config.host || "").trim();
+  if (!rawHost) {
+    throw new Error("Не указан адрес ClickHouse");
+  }
+
+  const hasProtocol = /^[a-z][a-z0-9+.-]*:\/\//i.test(rawHost);
+  if (hasProtocol) {
+    const url = new URL(rawHost);
+    if (url.pathname === "") {
+      url.pathname = "/";
+    }
+    url.searchParams.set("database", config.database || "default");
+    url.searchParams.set("default_format", "JSON");
+    return url.toString();
+  }
+
+  let hostClean = rawHost;
+  let portClean = config.port;
+
+  if (hostClean.includes("/")) {
+    const parts = hostClean.split("/");
+    hostClean = parts[0];
+  }
+
+  if (hostClean.includes(":")) {
+    const parts = hostClean.split(":");
+    hostClean = parts[0];
+    const parsedPort = parseInt(parts[1], 10);
+    if (!isNaN(parsedPort)) {
+      portClean = parsedPort;
+    }
+  }
+
+  const protocol = config.useHttps ? "https" : "http";
+  const url = new URL(`${protocol}://${hostClean}:${portClean || (config.useHttps ? 443 : 8123)}/`);
+  url.searchParams.set("database", config.database || "default");
+  url.searchParams.set("default_format", "JSON");
+  return url.toString();
+}
+
 // Global Auth Middleware
 app.use((req: any, res: any, next: any) => {
   if (req.path === "/api/auth/login") {
@@ -384,39 +425,7 @@ const MOCK_SCHEMA = {
 const executeClickHouseQuery = async (config: ClickHouseConfig, query: string): Promise<QueryResult> => {
   const start = Date.now();
   try {
-    let hostClean = (config.host || "").trim();
-    let portClean = config.port;
-
-    // 1. Strip protocol if user pasted it
-    if (hostClean.includes("://")) {
-      const parts = hostClean.split("://");
-      hostClean = parts[1];
-    }
-
-    // 2. Strip any trailing path or slash
-    if (hostClean.includes("/")) {
-      const parts = hostClean.split("/");
-      hostClean = parts[0];
-    }
-
-    // 3. Extract port from host if user included it with a colon
-    if (hostClean.includes(":")) {
-      const parts = hostClean.split(":");
-      hostClean = parts[0];
-      const parsedPort = parseInt(parts[1], 10);
-      if (!isNaN(parsedPort)) {
-        portClean = parsedPort;
-      }
-    }
-
-    const protocol = config.useHttps ? "https" : "http";
-    // Build connection url
-    const baseUrl = `${protocol}://${hostClean}:${portClean}`;
-    const params = new URLSearchParams({
-      database: config.database,
-      default_format: "JSON"
-    });
-    const url = `${baseUrl}/?${params.toString()}`;
+    const url = buildClickHouseUrl(config);
 
     const headers: Record<string, string> = {
       "Content-Type": "text/plain"
