@@ -51,17 +51,41 @@ export default function AiQueryInterface({
   analyticsEnabled,
   onAnalyticsToggle
 }: AiQueryInterfaceProps) {
+  const DIALOG_STORAGE_KEY = "ai_dialog_messages";
   const [question, setQuestion] = useState("");
   const [generating, setGenerating] = useState(false);
   const [generatedSql, setGeneratedSql] = useState("");
   const [explanation, setExplanation] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [messages, setMessages] = useState<DialogMessage[]>([]);
+  const [messages, setMessages] = useState<DialogMessage[]>(() => {
+    try {
+      const saved = localStorage.getItem(DIALOG_STORAGE_KEY);
+      return saved ? (JSON.parse(saved) as DialogMessage[]) : [];
+    } catch {
+      return [];
+    }
+  });
   const [databaseDraft, setDatabaseDraft] = useState(session.selectedDatabase || "");
 
   useEffect(() => {
     setDatabaseDraft(session.selectedDatabase || "");
   }, [session.selectedDatabase]);
+
+  // Keep the dialog across reloads so analysts don't lose their context.
+  useEffect(() => {
+    try {
+      localStorage.setItem(DIALOG_STORAGE_KEY, JSON.stringify(messages));
+    } catch {
+      /* storage may be unavailable (private mode) — non-fatal */
+    }
+  }, [messages]);
+
+  const handleClearDialog = () => {
+    setMessages([]);
+    setGeneratedSql("");
+    setExplanation("");
+    setError(null);
+  };
 
   const addMessage = (message: Omit<DialogMessage, "id">) => {
     setMessages((prev) => [
@@ -169,9 +193,9 @@ export default function AiQueryInterface({
   };
 
   return (
-    <div id="ai-query-interface" className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
+    <div id="ai-query-interface" className="surface-card rounded-2xl p-6 shadow-sm">
       <div className="flex items-center gap-3 mb-5">
-        <div className="p-2.5 bg-violet-50 text-violet-600 rounded-lg">
+        <div className="p-2.5 bg-brand-50 text-brand-600 rounded-lg">
           <Sparkles size={22} id="ai-icon" />
         </div>
         <div>
@@ -192,7 +216,7 @@ export default function AiQueryInterface({
               value={databaseDraft}
               onChange={(event) => setDatabaseDraft(event.target.value)}
               placeholder="Выберите базу"
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500"
+              className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
               id="database-combobox"
             />
             <datalist id="database-options">
@@ -222,7 +246,7 @@ export default function AiQueryInterface({
             type="checkbox"
             checked={analyticsEnabled}
             onChange={(event) => onAnalyticsToggle(event.target.checked)}
-            className="rounded border-slate-300 text-violet-600 focus:ring-violet-500/20"
+            className="rounded border-slate-300 text-brand-600 focus:ring-brand-500/20"
             id="analytics-toggle"
           />
           <BarChart3 size={16} className="text-slate-500" />
@@ -230,6 +254,20 @@ export default function AiQueryInterface({
           <span className="text-slate-400">{analyticsEnabled ? "вкл" : "выкл"}</span>
         </label>
       </div>
+
+      {messages.length > 0 && (
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Диалог с моделью</span>
+          <button
+            type="button"
+            onClick={handleClearDialog}
+            className="text-[11px] font-medium text-slate-400 hover:text-rose-600 transition-colors"
+            id="clear-dialog-btn"
+          >
+            Очистить диалог
+          </button>
+        </div>
+      )}
 
       {messages.length > 0 && (
         <div className="mb-5 space-y-2 max-h-64 overflow-y-auto pr-1" id="ai-dialog-messages">
@@ -241,11 +279,11 @@ export default function AiQueryInterface({
               <div
                 className={`rounded-xl border p-3 text-xs max-w-[88%] ${
                   message.role === "user"
-                    ? "bg-violet-600 border-violet-600 text-white rounded-br-sm"
+                    ? "bg-brand-600 border-brand-600 text-white rounded-br-sm"
                     : "bg-slate-50 border-slate-100 text-slate-700 rounded-bl-sm"
                 }`}
               >
-                <div className={`font-semibold mb-1 ${message.role === "user" ? "text-violet-100" : "text-slate-500"}`}>
+                <div className={`font-semibold mb-1 ${message.role === "user" ? "text-brand-100" : "text-slate-500"}`}>
                   {message.role === "user" ? "Вы" : "Модель"}
                 </div>
                 <div className="leading-normal whitespace-pre-wrap">{message.content}</div>
@@ -256,7 +294,7 @@ export default function AiQueryInterface({
                         key={database}
                         type="button"
                         onClick={() => handleDatabaseChoice(database)}
-                        className="px-3 py-1.5 rounded-lg bg-white border border-violet-200 text-violet-700 font-semibold hover:bg-violet-50 transition-colors"
+                        className="px-3 py-1.5 rounded-lg bg-white border border-brand-200 text-brand-700 font-semibold hover:bg-brand-50 transition-colors"
                       >
                         {database}
                       </button>
@@ -280,7 +318,7 @@ export default function AiQueryInterface({
               type="text"
               value={question}
               onChange={(e) => setQuestion(e.target.value)}
-              className="w-full pl-4 pr-32 py-3.5 rounded-xl border border-slate-200 bg-slate-50/50 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 transition-all placeholder:text-slate-400"
+              className="w-full pl-4 pr-32 py-3.5 rounded-xl border border-slate-200 bg-slate-50/50 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all placeholder:text-slate-400"
               placeholder="Например: Сколько ошибок совершил Администратор за сегодня?..."
               id="ai-question-input"
               required
@@ -288,7 +326,7 @@ export default function AiQueryInterface({
             <button
               type="submit"
               disabled={generating || loading || !question.trim() || !schema?.tables?.length}
-              className="absolute right-2 top-2 px-4 py-2 bg-violet-600 hover:bg-violet-700 disabled:bg-slate-200 text-white disabled:text-slate-400 rounded-lg text-xs font-semibold tracking-wide transition-colors flex items-center gap-1.5 shadow-sm"
+              className="absolute right-2 top-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 disabled:bg-slate-200 text-white disabled:text-slate-400 rounded-lg text-xs font-semibold tracking-wide transition-colors flex items-center gap-1.5 shadow-sm"
               id="generate-sql-btn"
               title={!schema?.tables?.length ? "Refresh ClickHouse schema before generating SQL" : undefined}
             >
@@ -320,10 +358,10 @@ export default function AiQueryInterface({
               key={idx}
               onClick={() => handleQuickQuestion(item.text)}
               disabled={generating || loading || !schema?.tables?.length}
-              className="flex flex-col items-start text-left p-3 border border-slate-100 rounded-xl hover:border-violet-200 hover:bg-violet-50/10 transition-all group disabled:opacity-50"
+              className="flex flex-col items-start text-left p-3 border border-slate-100 rounded-xl hover:border-brand-200 hover:bg-brand-50/10 transition-all group disabled:opacity-50"
               id={`quick-q-${idx}`}
             >
-              <div className="flex items-center gap-2 text-xs font-semibold text-slate-700 group-hover:text-violet-700 transition-colors">
+              <div className="flex items-center gap-2 text-xs font-semibold text-slate-700 group-hover:text-brand-700 transition-colors">
                 <ChevronRight size={13} className="text-slate-400 group-hover:translate-x-0.5 transition-transform shrink-0" />
                 {item.text}
               </div>
@@ -345,14 +383,14 @@ export default function AiQueryInterface({
         <div className="mt-6 border border-slate-200 rounded-xl bg-slate-900 overflow-hidden shadow-sm animate-fade-in" id="sql-container">
           <div className="bg-slate-800/80 px-4 py-3 border-b border-slate-800 flex items-center justify-between">
             <div className="flex items-center gap-2 text-xs font-semibold text-slate-300">
-              <Code size={14} className="text-violet-400" />
+              <Code size={14} className="text-brand-400" />
               Сгенерированный SQL-запрос ClickHouse
             </div>
             <div className="flex flex-wrap justify-end gap-2">
               <span className="text-[10px] bg-emerald-500/15 text-emerald-300 px-2.5 py-0.5 rounded-full font-semibold border border-emerald-500/10">
                 схема проверена
               </span>
-              <span className="text-[10px] bg-violet-500/20 text-violet-300 px-2.5 py-0.5 rounded-full font-semibold border border-violet-500/10">
+              <span className="text-[10px] bg-brand-500/20 text-brand-300 px-2.5 py-0.5 rounded-full font-semibold border border-brand-500/10">
                 {session.selectedDatabase || "база не выбрана"}
               </span>
               <span className="text-[10px] bg-slate-700 text-slate-300 px-2.5 py-0.5 rounded-full font-semibold border border-slate-600">
@@ -365,9 +403,16 @@ export default function AiQueryInterface({
             <textarea
               value={generatedSql}
               onChange={(e) => setGeneratedSql(e.target.value)}
+              onKeyDown={(e) => {
+                if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && !loading) {
+                  e.preventDefault();
+                  handleExecute();
+                }
+              }}
               rows={5}
               className="w-full bg-transparent border-0 p-0 text-emerald-400 font-mono text-xs focus:ring-0 focus:outline-none resize-none leading-relaxed"
               id="sql-textarea"
+              spellCheck={false}
             />
           </div>
 
@@ -378,11 +423,14 @@ export default function AiQueryInterface({
             </div>
           )}
 
-          <div className="bg-slate-950/80 px-4 py-3.5 flex justify-end">
+          <div className="bg-slate-950/80 px-4 py-3.5 flex items-center justify-between gap-3">
+            <span className="text-[10px] text-slate-500 font-mono hidden sm:inline">
+              SQL можно редактировать · <kbd className="px-1 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">Ctrl/⌘ + Enter</kbd> — выполнить
+            </span>
             <button
               onClick={handleExecute}
               disabled={loading}
-              className="px-6 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold tracking-wide transition-colors flex items-center gap-2 shadow-md disabled:bg-slate-800 disabled:text-slate-500"
+              className="px-6 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold tracking-wide transition-colors flex items-center gap-2 shadow-md disabled:bg-slate-800 disabled:text-slate-500 ml-auto"
               id="execute-sql-btn"
             >
               {loading ? (

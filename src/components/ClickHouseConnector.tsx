@@ -81,7 +81,7 @@ export default function ClickHouseConnector({
   };
 
   return (
-    <div id="clickhouse-connector" className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm transition-all">
+    <div id="clickhouse-connector" className="surface-card rounded-2xl p-6 shadow-sm transition-all">
       <div className="flex items-center justify-between mb-5">
         <div className="flex items-center gap-3">
           <div className="p-2.5 bg-sky-50 text-sky-600 rounded-lg">

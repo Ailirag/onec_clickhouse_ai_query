@@ -1,6 +1,6 @@
 {
-  "name": "1C ClickHouse AI Assistant",
-  "description": "An AI-powered assistant for analyzing 1C:Enterprise event logs stored in ClickHouse using natural language queries.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "name": "1С ClickHouse AI Assistant",
+  "description": "Интеллектуальный анализатор журналов регистрации 1С:Предприятие в ClickHouse: запросы на естественном языке, генерация SQL и аналитика (Gemini / YandexGPT).",
+  "version": "1.2.0",
+  "providers": ["yandexgpt", "gemini"]
 }

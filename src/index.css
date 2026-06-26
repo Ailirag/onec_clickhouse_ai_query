@@ -1,1 +1,152 @@
 @import "tailwindcss";
+
+/* ============================================================
+   Design tokens — modern, light, soft-tint visual identity
+   ============================================================ */
+@theme {
+  --font-sans: "Inter", "Segoe UI", ui-sans-serif, system-ui, -apple-system,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", "Cascadia Code", ui-monospace,
+    "Roboto Mono", Menlo, Consolas, monospace;
+
+  /* Brand accent — calm indigo with a soft companion violet */
+  --color-brand-50: #eef1ff;
+  --color-brand-100: #e0e5ff;
+  --color-brand-200: #c7cfff;
+  --color-brand-300: #a3b0fc;
+  --color-brand-400: #7f8bf6;
+  --color-brand-500: #6366f1;
+  --color-brand-600: #5457e6;
+  --color-brand-700: #4644c7;
+  --color-brand-800: #3a3aa0;
+  --color-brand-900: #33347f;
+
+  /* Animations (these power animate-* utilities) */
+  --animate-fade-in: fade-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-scale-in: scale-in 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-slide-up: slide-up 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-shimmer: shimmer 1.6s linear infinite;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+/* ============================================================
+   Base layer — soft tinted backdrop & refined typography
+   ============================================================ */
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    color: #1e293b;
+    font-family: var(--font-sans);
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    /* Layered light-tint mesh: barely-there indigo + sky washes */
+    background-color: #f6f7fb;
+    background-image:
+      radial-gradient(58rem 58rem at 12% -8%, rgba(99, 102, 241, 0.10), transparent 60%),
+      radial-gradient(46rem 46rem at 96% 4%, rgba(56, 189, 248, 0.10), transparent 55%),
+      radial-gradient(60rem 60rem at 50% 120%, rgba(139, 92, 246, 0.08), transparent 60%);
+    background-attachment: fixed;
+  }
+
+  ::selection {
+    background-color: rgba(99, 102, 241, 0.18);
+    color: #312e81;
+  }
+
+  /* Quiet, modern scrollbars */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #cbd2e0 transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 9px;
+    height: 9px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background-color: #cbd2e0;
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: #aab3c5;
+  }
+}
+
+/* ============================================================
+   Reusable component primitives
+   ============================================================ */
+@layer components {
+  /* Frosted surface used by the main cards/panels */
+  .surface-card {
+    background-color: rgba(255, 255, 255, 0.86);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(226, 232, 240, 0.9);
+    box-shadow:
+      0 1px 2px rgba(15, 23, 42, 0.04),
+      0 8px 24px -16px rgba(15, 23, 42, 0.18);
+  }
+
+  /* Skeleton shimmer for loading states */
+  .skeleton-shimmer {
+    background: linear-gradient(
+      90deg,
+      rgba(226, 232, 240, 0.55) 25%,
+      rgba(241, 245, 249, 0.9) 37%,
+      rgba(226, 232, 240, 0.55) 63%
+    );
+    background-size: 200% 100%;
+    animation: var(--animate-shimmer);
+  }
+}

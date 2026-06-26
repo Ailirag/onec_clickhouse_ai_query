@@ -1,11 +1,24 @@
 import React, { useState, useMemo } from "react";
 import { QueryResult } from "../types";
-import { Search, ChevronLeft, ChevronRight, Copy, Check, Table2 } from "lucide-react";
+import { Search, ChevronLeft, ChevronRight, Copy, Check, Table2, Download, ClipboardCopy, AlertTriangle } from "lucide-react";
 
 interface QueryResultViewerProps {
   result: QueryResult | null;
   loading: boolean;
   question?: string;
+}
+
+// Quote a value for CSV (RFC 4180): wrap in quotes and double internal quotes.
+function csvCell(value: any) {
+  const str = value === null || value === undefined ? "" : String(value);
+  return /[",\n\r;]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+}
+
+function buildCsv(columns: string[], rows: any[]) {
+  const header = columns.map(csvCell).join(",");
+  const body = rows.map((row) => columns.map((col) => csvCell(row[col])).join(",")).join("\r\n");
+  // BOM so Excel opens UTF-8 (Cyrillic) correctly.
+  return "﻿" + header + "\r\n" + body;
 }
 
 function summarizeError(error = "") {
@@ -23,11 +36,42 @@ export default function QueryResultViewer({ result, loading, question }: QueryRe
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [copiedCell, setCopiedCell] = useState<{ row: number; col: string } | null>(null);
+  const [copiedAll, setCopiedAll] = useState(false);
 
   const handleCopy = (text: string, rowIdx: number, colName: string) => {
     navigator.clipboard.writeText(text);
     setCopiedCell({ row: rowIdx, col: colName });
     setTimeout(() => setCopiedCell(null), 1500);
+  };
+
+  const handleExportCsv = () => {
+    if (!result?.columns || !result.rows) return;
+    const csv = buildCsv(result.columns, filteredRows);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+    link.href = url;
+    link.download = `clickhouse-result-${stamp}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleCopyAll = () => {
+    if (!result?.columns || !result.rows) return;
+    // Tab-separated — pastes cleanly into spreadsheets.
+    const tsv = [
+      result.columns.join("\t"),
+      ...filteredRows.map((row) => result.columns!.map((col) => {
+        const v = row[col];
+        return v === null || v === undefined ? "" : String(v).replace(/\t/g, " ").replace(/\r?\n/g, " ");
+      }).join("\t"))
+    ].join("\n");
+    navigator.clipboard.writeText(tsv);
+    setCopiedAll(true);
+    setTimeout(() => setCopiedAll(false), 1800);
   };
 
   // Reset page when result changes
@@ -56,7 +100,7 @@ export default function QueryResultViewer({ result, loading, question }: QueryRe
 
   if (loading) {
     return (
-      <div id="query-result-viewer-loading" className="bg-white rounded-xl border border-slate-200 p-8 shadow-sm flex flex-col items-center justify-center gap-3">
+      <div id="query-result-viewer-loading" className="surface-card rounded-2xl p-8 shadow-sm flex flex-col items-center justify-center gap-3">
         <div className="w-10 h-10 border-4 border-slate-100 border-t-emerald-600 rounded-full animate-spin"></div>
         <span className="text-xs font-semibold text-slate-500">Запрос выполняется в ClickHouse...</span>
       </div>
@@ -67,12 +111,12 @@ export default function QueryResultViewer({ result, loading, question }: QueryRe
 
   if (!result.success) {
     return (
-      <div id="query-result-viewer-error" className="bg-red-50 border border-red-100 rounded-xl p-5 text-xs text-red-800 leading-normal flex flex-col gap-2.5">
+      <div id="query-result-viewer-error" className="bg-rose-50 border border-rose-100 rounded-2xl p-5 text-xs text-rose-800 leading-normal flex flex-col gap-2.5 animate-fade-in">
         <div className="font-bold text-sm">{summarizeError(result.error)}</div>
-        <div className="text-[11px] text-red-700">Проверьте подключение, выбранную базу, схему или синтаксис SQL.</div>
+        <div className="text-[11px] text-rose-700">Проверьте подключение, выбранную базу, схему или синтаксис SQL.</div>
         <details className="mt-1">
-          <summary className="cursor-pointer font-semibold text-red-700">Детали</summary>
-          <pre className="mt-2 p-3 bg-red-100/50 rounded-lg text-[11px] font-mono whitespace-pre-wrap select-text">{result.error}</pre>
+          <summary className="cursor-pointer font-semibold text-rose-700">Детали</summary>
+          <pre className="mt-2 p-3 bg-rose-100/50 rounded-lg text-[11px] font-mono whitespace-pre-wrap select-text">{result.error}</pre>
         </details>
       </div>
     );
@@ -81,7 +125,7 @@ export default function QueryResultViewer({ result, loading, question }: QueryRe
   const columns = result.columns || [];
 
   return (
-    <div id="query-result-viewer" className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+    <div id="query-result-viewer" className="surface-card rounded-2xl shadow-sm overflow-hidden">
       {/* Header with stats */}
       <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
@@ -98,19 +142,50 @@ export default function QueryResultViewer({ result, loading, question }: QueryRe
           </div>
         </div>
 
-        {/* Search */}
-        <div className="relative max-w-xs w-full">
-          <Search size={14} className="absolute left-3.5 top-2.5 text-slate-400" />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 text-xs rounded-lg border border-slate-200 bg-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/10 focus:border-emerald-500 transition-all"
-            placeholder="Искать в результатах..."
-            id="result-search-input"
-          />
+        <div className="flex items-center gap-2">
+          {/* Export / copy actions */}
+          <button
+            onClick={handleCopyAll}
+            disabled={!result.rows?.length}
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-800 transition-colors disabled:opacity-50"
+            id="copy-all-btn"
+            title="Скопировать все строки (TSV — вставится в Excel)"
+          >
+            {copiedAll ? <Check size={13} className="text-emerald-600" /> : <ClipboardCopy size={13} />}
+            <span className="hidden sm:inline">{copiedAll ? "Скопировано" : "Копировать"}</span>
+          </button>
+          <button
+            onClick={handleExportCsv}
+            disabled={!result.rows?.length}
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-emerald-600 text-white hover:bg-emerald-500 transition-colors shadow-sm disabled:opacity-50"
+            id="export-csv-btn"
+            title="Скачать результат в CSV"
+          >
+            <Download size={13} />
+            <span className="hidden sm:inline">CSV</span>
+          </button>
+
+          {/* Search */}
+          <div className="relative w-full max-w-[200px]">
+            <Search size={14} className="absolute left-3.5 top-2.5 text-slate-400" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 text-xs rounded-lg border border-slate-200 bg-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/10 focus:border-emerald-500 transition-all"
+              placeholder="Искать…"
+              id="result-search-input"
+            />
+          </div>
         </div>
       </div>
+
+      {result.limitApplied && result.rowCount != null && result.rowCount >= result.limitApplied && (
+        <div className="px-6 py-2.5 bg-amber-50 border-b border-amber-100 text-[11px] text-amber-800 flex items-center gap-2" id="limit-applied-note">
+          <AlertTriangle size={13} className="text-amber-500 shrink-0" />
+          <span>Показаны первые <strong>{result.limitApplied.toLocaleString()}</strong> строк (применён защитный <code className="font-mono">LIMIT</code>). Уточните запрос или добавьте агрегацию, чтобы увидеть полную картину.</span>
+        </div>
+      )}
 
       <div className="px-6 py-3 border-b border-slate-100 bg-white text-xs text-slate-600 space-y-2">
         {question && (
@@ -139,18 +214,18 @@ export default function QueryResultViewer({ result, loading, question }: QueryRe
         </div>
       ) : (
         <>
-          {/* Scrollable table */}
-          <div className="overflow-x-auto">
+          {/* Scrollable table with sticky header */}
+          <div className="overflow-auto max-h-[60vh]">
             <table className="w-full text-left border-collapse text-slate-600 text-xs">
-              <thead>
-                <tr className="bg-slate-50/70 border-b border-slate-200/60 text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
-                  <th className="p-3.5 font-medium w-12 text-center border-r border-slate-100">#</th>
+              <thead className="sticky top-0 z-10">
+                <tr className="bg-slate-100/95 backdrop-blur border-b border-slate-200/60 text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
+                  <th className="p-3.5 font-medium w-12 text-center border-r border-slate-100 bg-slate-100/95">#</th>
                   {columns.map((col) => (
-                    <th key={col} className="p-3.5 font-medium whitespace-nowrap border-r border-slate-100">
+                    <th key={col} className="p-3.5 font-medium whitespace-nowrap border-r border-slate-100 bg-slate-100/95">
                       <div className="flex flex-col">
                         <span>{col}</span>
                         {result.columnTypes?.[col] && (
-                          <span className="text-[9px] text-indigo-500 font-mono lowercase normal-case mt-0.5 font-normal">
+                          <span className="text-[9px] text-brand-500 font-mono lowercase normal-case mt-0.5 font-normal">
                             {result.columnTypes[col]}
                           </span>
                         )}

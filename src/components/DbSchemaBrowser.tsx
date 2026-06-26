@@ -62,7 +62,7 @@ export default function DbSchemaBrowser({
             <span className="font-semibold text-xs text-slate-800 tracking-tight font-mono truncate">{table.name}</span>
 
             {table.isEventLog && (
-              <span className="hidden sm:flex items-center gap-1 px-2 py-0.5 bg-indigo-50 text-indigo-700 text-[10px] font-semibold rounded-full border border-indigo-100 shrink-0">
+              <span className="hidden sm:flex items-center gap-1 px-2 py-0.5 bg-brand-50 text-brand-700 text-[10px] font-semibold rounded-full border border-brand-100 shrink-0">
                 <Sparkles size={10} />
                 Журнал 1С
               </span>
@@ -87,7 +87,7 @@ export default function DbSchemaBrowser({
               <button
                 onClick={() => setShowSample(null)}
                 className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
-                  !isSampleVisible ? "bg-indigo-50 text-indigo-700" : "text-slate-500 hover:bg-slate-50"
+                  !isSampleVisible ? "bg-brand-50 text-brand-700" : "text-slate-500 hover:bg-slate-50"
                 }`}
               >
                 Колонки
@@ -95,7 +95,7 @@ export default function DbSchemaBrowser({
               <button
                 onClick={() => setShowSample(table.name)}
                 className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
-                  isSampleVisible ? "bg-indigo-50 text-indigo-700" : "text-slate-500 hover:bg-slate-50"
+                  isSampleVisible ? "bg-brand-50 text-brand-700" : "text-slate-500 hover:bg-slate-50"
                 }`}
               >
                 <Eye size={13} />
@@ -117,7 +117,7 @@ export default function DbSchemaBrowser({
                     {table.columns.map((col) => (
                       <tr key={col.name} className="hover:bg-slate-50/50">
                         <td className="py-2 font-medium text-slate-800">{col.name}</td>
-                        <td className="py-2 text-indigo-600 text-[11px]">{col.type}</td>
+                        <td className="py-2 text-brand-600 text-[11px]">{col.type}</td>
                         <td className="py-2 text-slate-500 font-sans text-xs">{col.comment || "-"}</td>
                       </tr>
                     ))}
@@ -166,10 +166,10 @@ export default function DbSchemaBrowser({
   };
 
   return (
-    <div id="db-schema-browser" className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+    <div id="db-schema-browser" className="surface-card rounded-2xl p-5 shadow-sm">
       <div className="flex items-center justify-between gap-3 mb-4">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-lg">
+          <div className="p-2.5 bg-brand-50 text-brand-600 rounded-lg">
             <Table size={20} id="schema-icon" />
           </div>
           <div className="min-w-0">
@@ -196,7 +196,7 @@ export default function DbSchemaBrowser({
           value={searchTerm}
           onChange={(event) => setSearchTerm(event.target.value)}
           placeholder="Поиск таблиц или колонок"
-          className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 bg-slate-50/50 text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500"
+          className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 bg-slate-50/50 text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/10 focus:border-brand-500"
           id="schema-search-input"
         />
       </div>
@@ -209,7 +209,7 @@ export default function DbSchemaBrowser({
 
       {loading && (
         <div className="flex flex-col items-center justify-center py-10 text-slate-400 gap-3" id="schema-loading">
-          <div className="w-8 h-8 border-4 border-slate-200 border-t-indigo-600 rounded-full animate-spin"></div>
+          <div className="w-8 h-8 border-4 border-slate-200 border-t-brand-600 rounded-full animate-spin"></div>
           <span className="text-xs font-medium">Загружаю схему...</span>
         </div>
       )}

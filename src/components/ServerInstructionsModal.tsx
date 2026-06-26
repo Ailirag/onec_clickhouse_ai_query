@@ -23,29 +23,38 @@ export default function ServerInstructionsModal({ isOpen, onClose }: ServerInstr
     build: "npm run build",
     start: "npm run start",
     pm2: "npm install -g pm2\npm2 start dist/server.cjs --name \"1c-clickhouse-ai\"\npm2 save",
-    schema: `CREATE TABLE default.EventLogItems
+    schema: `-- Структура соответствует экспортёру OneSTools.EventLog (akpaevj)
+CREATE TABLE EventLogItems
 (
-    \`DateTime\` DateTime,
+    \`ExporterName\` LowCardinality(String),
+    \`FileName\` LowCardinality(String),
+    \`EndPosition\` Int64,
+    \`LgfEndPosition\` Int64,
+    \`Id\` Int64,
+    \`DateTime\` DateTime('UTC'),
     \`TransactionStatus\` LowCardinality(String),
-    \`TransactionID\` String,
-    \`UserUuid\` UUID,
-    \`UserName\` LowCardinality(String),
+    \`TransactionDate\` DateTime('UTC'),
+    \`TransactionNumber\` Int64,
+    \`UserUuid\` LowCardinality(String),
+    \`User\` LowCardinality(String),
     \`Computer\` LowCardinality(String),
-    \`ApplicationPresentation\` LowCardinality(String),
-    \`Connection\` Int32,
-    \`EventPresentation\` LowCardinality(String),
-    \`SeverityPresentation\` LowCardinality(String),
+    \`Application\` LowCardinality(String),
+    \`Connection\` Int64,
+    \`Event\` LowCardinality(String),
+    \`Severity\` LowCardinality(String),
     \`Comment\` String,
-    \`MetadataPresentation\` String,
+    \`MetadataUuid\` String,
+    \`Metadata\` LowCardinality(String),
+    \`Data\` String,
     \`DataPresentation\` String,
-    \`Session\` Int32,
-    \`ServerName\` LowCardinality(String),
-    \`Port\` Int32,
-    \`SyncDate\` DateTime DEFAULT now()
+    \`Server\` LowCardinality(String),
+    \`MainPort\` Int32,
+    \`AddPort\` Int32,
+    \`Session\` Int64
 )
 ENGINE = MergeTree
 PARTITION BY toYYYYMM(DateTime)
-ORDER BY (SeverityPresentation, DateTime);`
+ORDER BY DateTime;`
   };
 
   return (
@@ -55,7 +64,7 @@ ORDER BY (SeverityPresentation, DateTime);`
         {/* Modal Header */}
         <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl">
+            <div className="p-2.5 bg-brand-50 text-brand-600 rounded-xl">
               <BookOpen size={22} />
             </div>
             <div>
@@ -205,7 +214,7 @@ ORDER BY (SeverityPresentation, DateTime);`
           {/* Section 5: Security and Role Permissions */}
           <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2.5">
             <h5 className="font-semibold text-slate-800 flex items-center gap-1.5">
-              <ShieldCheck size={16} className="text-indigo-600" />
+              <ShieldCheck size={16} className="text-brand-600" />
               Ролевая модель и безопасность
             </h5>
             <p className="text-xs text-slate-600 leading-relaxed">
@@ -216,7 +225,7 @@ ORDER BY (SeverityPresentation, DateTime);`
                 <strong className="text-slate-800">Пользователь (User)</strong>: Имеет полный доступ к ИИ-интерфейсу запросов, может в реальном времени генерировать отчеты, графики, просматривать структуру каталогов. Все критические поля настроек заблокированы в режиме «Только чтение».
               </li>
               <li>
-                <strong className="text-slate-800">Администратор (Admin)</strong>: Настраивает СУБД ClickHouse, AI-модели и API-ключи. Для входа используется пароль по умолчанию: <code className="bg-indigo-50 text-indigo-700 px-1 py-0.5 rounded font-mono font-semibold">admin</code>.
+                <strong className="text-slate-800">Администратор (Admin)</strong>: Настраивает СУБД ClickHouse, AI-модели и API-ключи. Пароли по умолчанию создаются при первом запуске и хранятся в виде PBKDF2-хеша в <code className="bg-brand-50 text-brand-700 px-1 py-0.5 rounded font-mono font-semibold">passwords.json</code>. Смените их сразу после установки в разделе «Управление паролями».
               </li>
             </ul>
           </div>

@@ -50,9 +50,9 @@ export default function AdminPasswordManager({ role }: AdminPasswordManagerProps
   };
 
   return (
-    <div id="admin-password-manager" className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm transition-all animate-fade-in">
+    <div id="admin-password-manager" className="surface-card rounded-2xl p-6 shadow-sm transition-all animate-fade-in">
       <div className="flex items-center gap-3 mb-5">
-        <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-lg">
+        <div className="p-2.5 bg-brand-50 text-brand-600 rounded-lg">
           <KeyRound size={22} />
         </div>
         <div>
@@ -92,7 +92,7 @@ export default function AdminPasswordManager({ role }: AdminPasswordManagerProps
               }}
               className={`flex items-center justify-center gap-1.5 py-1.5 text-xs font-semibold rounded-md transition-all ${
                 targetRole === "admin"
-                  ? "bg-indigo-600 text-white shadow-sm"
+                  ? "bg-brand-600 text-white shadow-sm"
                   : "text-slate-500 hover:text-slate-800"
               }`}
               id="pwd-target-admin-btn"
@@ -116,7 +116,7 @@ export default function AdminPasswordManager({ role }: AdminPasswordManagerProps
               setStatus(null);
             }}
             placeholder="Введите не менее 3 символов..."
-            className="w-full px-3.5 py-2 rounded-lg border border-slate-200 bg-slate-50/50 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all placeholder:text-slate-400"
+            className="w-full px-3.5 py-2 rounded-lg border border-slate-200 bg-slate-50/50 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all placeholder:text-slate-400"
             required
             minLength={3}
             id="pwd-new-input"
@@ -144,7 +144,7 @@ export default function AdminPasswordManager({ role }: AdminPasswordManagerProps
         <button
           type="submit"
           disabled={loading || !newPassword.trim()}
-          className="w-full py-2 bg-slate-800 hover:bg-slate-700 disabled:bg-slate-150 text-white disabled:text-slate-400 rounded-lg text-xs font-semibold tracking-wide transition-colors flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
+          className="w-full py-2 bg-slate-800 hover:bg-slate-700 disabled:bg-slate-200 text-white disabled:text-slate-400 rounded-lg text-xs font-semibold tracking-wide transition-colors flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
           id="pwd-submit-btn"
         >
           {loading ? (

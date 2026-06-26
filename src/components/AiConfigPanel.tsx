@@ -9,9 +9,9 @@ interface AiConfigPanelProps {
 }
 
 const GEMINI_MODELS = [
-  { id: "gemini-3.5-flash", name: "Gemini 3.5 Flash (Рекомендуется)" },
-  { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash (Быстрая)" },
-  { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro (Креативная)" }
+  { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash (Рекомендуется)" },
+  { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro (Точная)" },
+  { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash (Быстрая)" }
 ];
 
 const YANDEX_MODELS = [
@@ -79,10 +79,10 @@ export default function AiConfigPanel({ config, onConfigChange, role }: AiConfig
   const isLocked = role === "user";
 
   return (
-    <div id="ai-config-panel" className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm transition-all">
+    <div id="ai-config-panel" className="surface-card rounded-2xl p-6 shadow-sm transition-all">
       <div className="flex items-center justify-between mb-5">
         <div className="flex items-center gap-3">
-          <div className="p-2.5 bg-violet-50 text-violet-600 rounded-lg">
+          <div className="p-2.5 bg-brand-50 text-brand-600 rounded-lg">
             <BrainCircuit size={22} id="ai-config-icon" />
           </div>
           <div>
@@ -135,7 +135,7 @@ export default function AiConfigPanel({ config, onConfigChange, role }: AiConfig
             isLocked ? "cursor-not-allowed opacity-80" : "cursor-pointer"
           } ${
             provider === "gemini"
-              ? "bg-white text-violet-700 shadow-sm"
+              ? "bg-white text-brand-700 shadow-sm"
               : "text-slate-500 hover:text-slate-800"
           }`}
           id="provider-gemini-btn"
@@ -153,7 +153,7 @@ export default function AiConfigPanel({ config, onConfigChange, role }: AiConfig
             isLocked ? "cursor-not-allowed opacity-80" : "cursor-pointer"
           } ${
             provider === "yandexgpt"
-              ? "bg-white text-violet-700 shadow-sm"
+              ? "bg-white text-brand-700 shadow-sm"
               : "text-slate-500 hover:text-slate-800"
           }`}
           id="provider-yandex-btn"
@@ -174,7 +174,7 @@ export default function AiConfigPanel({ config, onConfigChange, role }: AiConfig
             handleSaveNotification();
           }}
           rows={5}
-          className={`w-full px-3.5 py-2 rounded-lg border border-slate-200 bg-slate-50/50 text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 transition-all placeholder:text-slate-400 resize-y ${
+          className={`w-full px-3.5 py-2 rounded-lg border border-slate-200 bg-slate-50/50 text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all placeholder:text-slate-400 resize-y ${
             isLocked ? "opacity-75 cursor-not-allowed bg-slate-100" : ""
           }`}
           placeholder="Дополнительные инструкции для генерации SQL, исправления запросов и аналитики. Например: использовать только выбранную базу, отдавать короткие LIMIT-запросы, явно пояснять допущения."
@@ -197,7 +197,7 @@ export default function AiConfigPanel({ config, onConfigChange, role }: AiConfig
                 setGeminiModel(e.target.value);
                 handleSaveNotification();
               }}
-              className={`w-full px-3.5 py-2.5 rounded-lg border border-slate-200 bg-slate-50/50 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 transition-all ${
+              className={`w-full px-3.5 py-2.5 rounded-lg border border-slate-200 bg-slate-50/50 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all ${
                 isLocked ? "opacity-75 cursor-not-allowed bg-slate-100" : ""
               }`}
               id="gemini-model-select"
@@ -231,7 +231,7 @@ export default function AiConfigPanel({ config, onConfigChange, role }: AiConfig
                 setYandexApiKey(e.target.value);
                 handleSaveNotification();
               }}
-              className={`w-full px-3.5 py-2 rounded-lg border border-slate-200 bg-slate-50/50 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 transition-all placeholder:text-slate-400 ${
+              className={`w-full px-3.5 py-2 rounded-lg border border-slate-200 bg-slate-50/50 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all placeholder:text-slate-400 ${
                 isLocked ? "opacity-75 cursor-not-allowed bg-slate-100" : ""
               }`}
               placeholder={isLocked ? "••••••••••••••••" : "AQVN..."}
@@ -256,7 +256,7 @@ export default function AiConfigPanel({ config, onConfigChange, role }: AiConfig
                 setYandexFolderId(e.target.value);
                 handleSaveNotification();
               }}
-              className={`w-full px-3.5 py-2 rounded-lg border border-slate-200 bg-slate-50/50 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 transition-all placeholder:text-slate-400 ${
+              className={`w-full px-3.5 py-2 rounded-lg border border-slate-200 bg-slate-50/50 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all placeholder:text-slate-400 ${
                 isLocked ? "opacity-75 cursor-not-allowed bg-slate-100" : ""
               }`}
               placeholder="b1g..."
@@ -281,7 +281,7 @@ export default function AiConfigPanel({ config, onConfigChange, role }: AiConfig
                 }
                 handleSaveNotification();
               }}
-              className={`w-full px-3.5 py-2.5 rounded-lg border border-slate-200 bg-slate-50/50 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 transition-all ${
+              className={`w-full px-3.5 py-2.5 rounded-lg border border-slate-200 bg-slate-50/50 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all ${
                 isLocked ? "opacity-75 cursor-not-allowed bg-slate-100" : ""
               }`}
               id="yandex-model-select"
@@ -307,7 +307,7 @@ export default function AiConfigPanel({ config, onConfigChange, role }: AiConfig
                   setCustomYandexUri(e.target.value);
                   handleSaveNotification();
                 }}
-                className={`w-full px-3.5 py-2 rounded-lg border border-slate-200 bg-slate-50/50 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 transition-all placeholder:text-slate-400 ${
+                className={`w-full px-3.5 py-2 rounded-lg border border-slate-200 bg-slate-50/50 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all placeholder:text-slate-400 ${
                   isLocked ? "opacity-75 cursor-not-allowed bg-slate-100" : ""
                 }`}
                 placeholder="gpt://b1g.../deepseek-v4-flash/latest или deepseek-v4-flash/latest"

@@ -21,8 +21,8 @@ const DEFAULT_CONFIG: ClickHouseConfig = {
 };
 
 const DEFAULT_AI_CONFIG: AiConfig = {
-  provider: "gemini",
-  geminiModel: "gemini-3.5-flash",
+  provider: "yandexgpt",
+  geminiModel: "gemini-2.5-flash",
   yandexApiKey: "",
   yandexFolderId: "",
   yandexModel: "yandexgpt/latest",
@@ -370,10 +370,10 @@ export default function App() {
 
   if (isAuthenticated === null) {
     return (
-      <div className="min-h-screen bg-slate-50/50 flex flex-col items-center justify-center p-4">
+      <div className="min-h-screen flex flex-col items-center justify-center p-4">
         <div className="flex flex-col items-center gap-3">
-          <div className="w-12 h-12 border-4 border-indigo-600/30 border-t-indigo-600 rounded-full animate-spin"></div>
-          <span className="text-xs font-semibold text-slate-500 font-sans">Проверка авторизации...</span>
+          <div className="w-12 h-12 border-[3px] border-brand-200/60 border-t-brand-500 rounded-full animate-spin"></div>
+          <span className="text-xs font-semibold text-slate-500 font-sans">Проверка авторизации…</span>
         </div>
       </div>
     );
@@ -381,15 +381,15 @@ export default function App() {
 
   if (isAuthenticated === false) {
     return (
-      <div className="min-h-screen bg-slate-50/50 flex flex-col items-center justify-center p-4" id="login-container">
+      <div className="min-h-screen flex flex-col items-center justify-center p-4" id="login-container">
         {/* Centered Login Card */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-xl max-w-md w-full animate-scale-in">
-          <div className="flex flex-col items-center text-center mb-6">
-            <div className="p-3.5 bg-gradient-to-tr from-indigo-600 to-violet-600 text-white rounded-2xl shadow-lg shadow-indigo-100 mb-4">
+        <div className="surface-card rounded-3xl p-8 max-w-md w-full animate-scale-in">
+          <div className="flex flex-col items-center text-center mb-7">
+            <div className="p-3.5 bg-gradient-to-br from-brand-500 to-violet-500 text-white rounded-2xl shadow-lg shadow-brand-200/50 mb-4">
               <Server size={28} />
             </div>
             <h2 className="text-2xl font-bold text-slate-900 tracking-tight font-sans">1С ClickHouse AI Assistant</h2>
-            <p className="text-xs text-slate-500 mt-1 font-medium">Интеллектуальный анализатор журналов регистрации 1С:Предприятие</p>
+            <p className="text-xs text-slate-500 mt-1.5 font-medium leading-relaxed">Интеллектуальный анализатор журналов регистрации 1С:Предприятие</p>
           </div>
 
           <form onSubmit={handleLoginSubmit} className="space-y-5">
@@ -422,7 +422,7 @@ export default function App() {
                   }}
                   className={`flex items-center justify-center gap-1.5 py-2 text-xs font-semibold rounded-lg transition-all ${
                     loginRole === "admin"
-                      ? "bg-indigo-600 text-white shadow-sm"
+                      ? "bg-brand-500 text-white shadow-sm shadow-brand-200/60"
                       : "text-slate-500 hover:text-slate-800"
                   }`}
                 >
@@ -453,8 +453,8 @@ export default function App() {
                   setLoginPasswordInput(e.target.value);
                   setLoginError("");
                 }}
-                className="w-full px-3.5 py-2.5 rounded-lg border border-slate-200 bg-slate-50/50 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all placeholder:text-slate-400"
-                placeholder="Введите пароль..."
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/60 text-sm focus:bg-white focus:outline-none focus:ring-4 focus:ring-brand-500/15 focus:border-brand-400 transition-all placeholder:text-slate-400"
+                placeholder="Введите пароль…"
                 required
                 autoFocus
               />
@@ -470,12 +470,12 @@ export default function App() {
             <button
               type="submit"
               disabled={loginLoading}
-              className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white rounded-xl text-xs font-semibold tracking-wide transition-colors flex items-center justify-center gap-1.5 shadow-md shadow-indigo-100 cursor-pointer"
+              className="w-full py-2.5 bg-brand-500 hover:bg-brand-600 disabled:bg-brand-300 text-white rounded-xl text-xs font-semibold tracking-wide transition-colors flex items-center justify-center gap-1.5 shadow-md shadow-brand-200/50 cursor-pointer"
             >
               {loginLoading ? (
                 <>
                   <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                  <span>Вход...</span>
+                  <span>Вход…</span>
                 </>
               ) : (
                 <span>Войти в систему</span>
@@ -483,32 +483,28 @@ export default function App() {
             </button>
           </form>
 
-          {/* Quick Info about initial passwords */}
-          <div className="mt-6 pt-5 border-t border-slate-100 flex flex-col gap-1.5 text-[10px] text-slate-400 leading-normal">
-            <span className="font-semibold text-slate-500">Пароли по умолчанию для проверки:</span>
-            <div className="flex justify-between">
-              <span>Пользователь: <strong className="font-mono text-slate-600 font-semibold bg-slate-100 px-1 rounded">user</strong></span>
-              <span>Администратор: <strong className="font-mono text-slate-600 font-semibold bg-slate-100 px-1 rounded">admin</strong></span>
-            </div>
-          </div>
+          <p className="mt-6 pt-5 border-t border-slate-100 text-[10px] text-slate-400 leading-relaxed text-center">
+            Доступ к системе предоставляется администратором. Реквизиты подключения и AI-провайдеры
+            настраиваются после входа под ролью администратора.
+          </p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50/50 text-slate-800 font-sans antialiased pb-12" id="app-root">
+    <div className="min-h-screen text-slate-800 font-sans antialiased pb-12" id="app-root">
       {/* Dynamic Header */}
-      <header className="sticky top-0 z-50 backdrop-blur-md bg-white/80 border-b border-slate-200/80 px-6 py-4 shadow-sm">
+      <header className="sticky top-0 z-50 backdrop-blur-xl bg-white/70 border-b border-white/60 px-6 py-4 shadow-[0_1px_0_rgba(15,23,42,0.04)]">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-gradient-to-tr from-indigo-600 to-violet-600 text-white rounded-xl shadow-md shadow-indigo-200">
+            <div className="p-2.5 bg-gradient-to-br from-brand-500 to-violet-500 text-white rounded-2xl shadow-md shadow-brand-200/60">
               <Server size={22} />
             </div>
             <div>
               <h1 className="text-xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
                 1С ClickHouse AI Assistant
-                <span className="text-[10px] bg-slate-100 text-slate-600 font-bold px-2 py-0.5 rounded border border-slate-200 uppercase tracking-widest font-mono">v1.2</span>
+                <span className="text-[10px] bg-brand-50 text-brand-600 font-bold px-2 py-0.5 rounded-md border border-brand-100 uppercase tracking-widest font-mono">v1.2</span>
               </h1>
               <p className="text-xs text-slate-500 font-medium">Интеллектуальный анализатор журналов регистрации 1С:Предприятие</p>
             </div>
@@ -517,9 +513,9 @@ export default function App() {
           <div className="flex flex-col sm:flex-row items-center gap-3.5">
             {/* Active Session info & Logout */}
             <div className="flex items-center gap-3">
-              <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 rounded-xl border border-slate-200 text-xs">
+              <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white/70 rounded-xl border border-slate-200/80 text-xs">
                 {userRole === "admin" ? (
-                  <Shield size={13} className="text-indigo-600 animate-pulse" />
+                  <Shield size={13} className="text-brand-500" />
                 ) : (
                   <User size={13} className="text-slate-600" />
                 )}
@@ -567,7 +563,7 @@ export default function App() {
           <button
             type="button"
             onClick={() => setSettingsOpen((open) => !open)}
-            className="w-full bg-white rounded-xl border border-slate-200 shadow-sm px-5 py-4 flex items-center justify-between text-left hover:bg-slate-50 transition-colors"
+            className="w-full surface-card rounded-2xl px-5 py-4 flex items-center justify-between text-left hover:bg-white transition-colors"
             id="settings-toggle"
           >
             <div>
@@ -638,7 +634,7 @@ export default function App() {
 
           {/* Local history bento */}
           {history.length > 0 && (
-            <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm" id="history-panel">
+            <div className="surface-card rounded-2xl p-6" id="history-panel">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2.5">
                   <History size={18} className="text-slate-500" />
@@ -658,12 +654,12 @@ export default function App() {
                   <div
                     key={item.id}
                     onClick={() => handleApplyHistory(item)}
-                    className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 border border-slate-100 rounded-xl hover:border-violet-100 hover:bg-violet-50/10 cursor-pointer group transition-all"
+                    className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 border border-slate-100 rounded-xl hover:border-brand-200 hover:bg-brand-50/40 cursor-pointer group transition-all"
                   >
                     <div className="flex items-start gap-2.5">
                       <Clock size={13} className="text-slate-400 mt-1 shrink-0" />
                       <div>
-                        <p className="text-xs font-semibold text-slate-700 group-hover:text-violet-700 transition-colors line-clamp-1">
+                        <p className="text-xs font-semibold text-slate-700 group-hover:text-brand-700 transition-colors line-clamp-1">
                           {item.question}
                         </p>
                         <div className="flex items-center gap-2 mt-1">

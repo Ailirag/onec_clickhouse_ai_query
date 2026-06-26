@@ -76,30 +76,39 @@ pm2 startup
 Для успешного анализа и автоматической генерации SQL-запросов нейросеть считывает схему базы данных. Приложение оптимизировано под структуру таблицы экспорта журналов регистрации 1С (`EventLogItems` или аналогичные).
 
 ### Ожидаемая структура таблицы `EventLogItems`:
+Структура соответствует экспортёру [`OneSTools.EventLog`](https://github.com/akpaevj/OneSTools.EventLog) (поля `Event`, `Severity`, `User` и т.д.). Приложение читает реальную схему из ClickHouse, поэтому подойдёт и другая структура журнала — генерация SQL опирается на фактические имена колонок.
 ```sql
-CREATE TABLE default.EventLogItems
+CREATE TABLE EventLogItems
 (
-    `DateTime` DateTime,
+    `ExporterName` LowCardinality(String),
+    `FileName` LowCardinality(String),
+    `EndPosition` Int64,
+    `LgfEndPosition` Int64,
+    `Id` Int64,
+    `DateTime` DateTime('UTC'),
     `TransactionStatus` LowCardinality(String),
-    `TransactionID` String,
-    `UserUuid` UUID,
-    `UserName` LowCardinality(String),
+    `TransactionDate` DateTime('UTC'),
+    `TransactionNumber` Int64,
+    `UserUuid` LowCardinality(String),
+    `User` LowCardinality(String),
     `Computer` LowCardinality(String),
-    `ApplicationPresentation` LowCardinality(String),
-    `Connection` Int32,
-    `EventPresentation` LowCardinality(String),
-    `SeverityPresentation` LowCardinality(String),
+    `Application` LowCardinality(String),
+    `Connection` Int64,
+    `Event` LowCardinality(String),
+    `Severity` LowCardinality(String),
     `Comment` String,
-    `MetadataPresentation` String,
+    `MetadataUuid` String,
+    `Metadata` LowCardinality(String),
+    `Data` String,
     `DataPresentation` String,
-    `Session` Int32,
-    `ServerName` LowCardinality(String),
-    `Port` Int32,
-    `SyncDate` DateTime DEFAULT now()
+    `Server` LowCardinality(String),
+    `MainPort` Int32,
+    `AddPort` Int32,
+    `Session` Int64
 )
 ENGINE = MergeTree
 PARTITION BY toYYYYMM(DateTime)
-ORDER BY (SeverityPresentation, DateTime);
+ORDER BY DateTime;
 ```
 
 ---
@@ -117,7 +126,7 @@ ORDER BY (SeverityPresentation, DateTime);
    * Обладает полными правами.
    * Может переключать демо-режим, тестировать и изменять настройки СУБД ClickHouse.
    * Настраивает провайдеров искусственного интеллекта (API-ключи, идентификаторы каталогов, конкретные версии моделей YandexGPT или Gemini).
-   * **Пароль по умолчанию**: `admin` (вводится при переключении роли в верхней панели).
+   * Пароли создаются при первом запуске и хранятся в виде PBKDF2-хеша в `passwords.json`. **Смените пароли по умолчанию сразу после установки** в разделе «Управление паролями».
 
 ---
 

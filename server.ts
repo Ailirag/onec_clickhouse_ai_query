@@ -129,6 +129,29 @@ function isReadOnlySql(query: string) {
   return !/\b(INSERT|ALTER|CREATE|DROP|TRUNCATE|OPTIMIZE|KILL|SYSTEM|ATTACH|DETACH|RENAME|EXCHANGE|REPLACE|GRANT|REVOKE|SET|INTO\s+OUTFILE)\b/i.test(withoutTrailingSemicolon);
 }
 
+// Safety cap: rows returned to the browser for a single ad-hoc query.
+const MAX_RESULT_ROWS = Number(process.env.MAX_RESULT_ROWS || 5000);
+
+// Append a protective LIMIT to row-returning SELECT/WITH queries that don't
+// already constrain their output, so an accidental scan of a billions-row
+// table can't stream an enormous payload back to the UI.
+function applyRowLimit(query: string, cap: number = MAX_RESULT_ROWS): { sql: string; applied: boolean } {
+  const cleaned = stripSqlComments(query);
+  const withoutSemicolon = cleaned.replace(/;\s*$/, "");
+  const firstKeyword = withoutSemicolon.match(/^[a-z]+/i)?.[0]?.toUpperCase();
+
+  // Only row-returning statements need a cap; SHOW/DESCRIBE/EXPLAIN are bounded.
+  if (firstKeyword !== "SELECT" && firstKeyword !== "WITH") {
+    return { sql: query, applied: false };
+  }
+  // Respect an existing LIMIT, and don't disturb a trailing FORMAT/INTO clause.
+  if (/\blimit\b/i.test(withoutSemicolon) || /\bformat\b/i.test(withoutSemicolon) || /\binto\s+outfile\b/i.test(withoutSemicolon)) {
+    return { sql: query, applied: false };
+  }
+
+  return { sql: `${withoutSemicolon}\nLIMIT ${cap}`, applied: true };
+}
+
 function buildClickHouseUrl(config: ClickHouseConfig) {
   const rawHost = (config.host || "").trim();
   if (!rawHost) {
@@ -201,7 +224,7 @@ function redactClickHouseUrl(rawUrl: string) {
 
 // Global Auth Middleware
 app.use((req: any, res: any, next: any) => {
-  if (req.path === "/api/auth/login") {
+  if (req.path === "/api/auth/login" || req.path === "/api/health") {
     return next();
   }
   if (req.path.startsWith("/api/")) {
@@ -281,20 +304,33 @@ app.get("/api/auth/verify", (req: any, res: any) => {
   res.json({ success: true, role: req.user.role });
 });
 
-const PORT = Number(process.env.PORT || 3000);
-
-// Initialize Gemini Client
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
-    }
-  }
+// Lightweight health probe for monitoring / load balancers (no auth).
+app.get("/api/health", (_req: any, res: any) => {
+  res.json({
+    status: "ok",
+    uptime: Math.round(process.uptime()),
+    activeSessions: ACTIVE_SESSIONS.size,
+    time: new Date().toISOString()
+  });
 });
 
-// Helper for calling standard model
-const GEMINI_MODEL = "gemini-3.5-flash";
+const PORT = Number(process.env.PORT || 3000);
+
+// Gemini is an optional provider. The client is created lazily on first use so
+// the server doesn't warn about a missing key when YandexGPT is the provider.
+let geminiClient: GoogleGenAI | null = null;
+function getGeminiClient(): GoogleGenAI {
+  if (!process.env.GEMINI_API_KEY) {
+    throw new Error("GEMINI_API_KEY не задан на сервере. Выберите провайдера YandexGPT или укажите ключ Gemini в окружении.");
+  }
+  if (!geminiClient) {
+    geminiClient = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  }
+  return geminiClient;
+}
+
+// Default Gemini model used when none is supplied
+const GEMINI_MODEL = "gemini-2.5-flash";
 
 // Generative mock data representing 1C Event Log exporter (akpaevj/OneSTools.EventLog)
 const generateMockEventLog = () => {
@@ -471,8 +507,15 @@ const MOCK_SCHEMA = {
   ]
 };
 
+// Max time (ms) to wait for a single ClickHouse HTTP request before aborting.
+const CLICKHOUSE_TIMEOUT_MS = Number(process.env.CLICKHOUSE_TIMEOUT_MS || 60000);
+
 // Real ClickHouse Executer
-const executeClickHouseQuery = async (config: ClickHouseConfig, query: string): Promise<QueryResult> => {
+const executeClickHouseQuery = async (
+  config: ClickHouseConfig,
+  query: string,
+  timeoutMs: number = CLICKHOUSE_TIMEOUT_MS
+): Promise<QueryResult> => {
   const start = Date.now();
   let diagnostics: Record<string, any> | null = null;
   try {
@@ -498,7 +541,8 @@ const executeClickHouseQuery = async (config: ClickHouseConfig, query: string): 
     const response = await fetch(url, {
       method: "POST",
       headers,
-      body: query
+      body: query,
+      signal: AbortSignal.timeout(timeoutMs)
     });
 
     const elapsedMs = Date.now() - start;
@@ -541,8 +585,9 @@ const executeClickHouseQuery = async (config: ClickHouseConfig, query: string): 
       elapsedMs
     };
   } catch (err: any) {
+    const isTimeout = err?.name === "TimeoutError" || err?.name === "AbortError";
     const details = [
-      err.message || String(err),
+      isTimeout ? `Превышено время ожидания ответа ClickHouse (${timeoutMs} мс)` : (err.message || String(err)),
       err.cause?.code ? `code=${err.cause.code}` : "",
       err.cause?.address ? `address=${err.cause.address}` : "",
       err.cause?.port ? `port=${err.cause.port}` : ""
@@ -551,7 +596,7 @@ const executeClickHouseQuery = async (config: ClickHouseConfig, query: string): 
     return {
       success: false,
       sql: query,
-      error: `Network Connection Error: ${details}${diagnostics ? `\n\nДиагностика подключения: ${JSON.stringify(diagnostics)}` : ""}`,
+      error: `${isTimeout ? "TIMEOUT" : "Network Connection Error"}: ${details}${diagnostics ? `\n\nДиагностика подключения: ${JSON.stringify(diagnostics)}` : ""}`,
       elapsedMs: Date.now() - start
     };
   }
@@ -572,6 +617,29 @@ app.post("/api/clickhouse/test", async (req, res) => {
   }
 });
 
+// Run async tasks with a bounded concurrency (keeps schema sampling fast
+// without flooding ClickHouse with hundreds of simultaneous requests).
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let cursor = 0;
+  const runners = new Array(Math.min(limit, items.length)).fill(0).map(async () => {
+    while (cursor < items.length) {
+      const index = cursor++;
+      results[index] = await worker(items[index], index);
+    }
+  });
+  await Promise.all(runners);
+  return results;
+}
+
+// How many tables to fetch preview rows for (selected DB first).
+const SCHEMA_SAMPLE_TABLE_LIMIT = 40;
+const SCHEMA_SAMPLE_CONCURRENCY = 8;
+
 // 2. Fetch DB Schema (Tables and Columns)
 app.post("/api/clickhouse/schema", async (req, res) => {
   const { config, isDemo } = req.body;
@@ -584,8 +652,9 @@ app.post("/api/clickhouse/schema", async (req, res) => {
   try {
     const selectedDatabase = config.database || "default";
     const selectedDatabaseLiteral = escapeClickHouseString(selectedDatabase);
+    // total_rows comes straight from MergeTree metadata — instant, unlike count().
     const tablesQuery = `
-      SELECT database, name
+      SELECT database, name, total_rows
       FROM system.tables
       WHERE is_temporary = 0
         AND database NOT IN ('system', 'INFORMATION_SCHEMA', 'information_schema')
@@ -598,51 +667,68 @@ app.post("/api/clickhouse/schema", async (req, res) => {
       return res.status(500).json({ success: false, error: tablesRes.error });
     }
 
-    const tableRefs = tablesRes.rows?.map((r: any) => ({
-      database: r.database || selectedDatabase,
-      name: r.name
-    })).filter((r: any) => r.name) || [];
-    const tables: any[] = [];
+    const tableRefs = (tablesRes.rows || [])
+      .map((r: any) => ({
+        database: r.database || selectedDatabase,
+        name: r.name,
+        rowCount: r.total_rows != null ? Number(r.total_rows) : 0
+      }))
+      .filter((r: any) => r.name);
 
-    for (const tableRef of tableRefs) {
-      const tableDatabase = tableRef.database;
-      const tableName = tableRef.name;
-      const databaseLiteral = escapeClickHouseString(tableDatabase);
-      const tableLiteral = escapeClickHouseString(tableName);
-      const tableIdentifier = quoteClickHouseTable(tableDatabase, tableName);
-      const displayName = schemaTableName(tableDatabase, tableName, selectedDatabase);
-      // Query columns
-      const columnsQuery = `
-        SELECT name, type, comment 
-        FROM system.columns 
-        WHERE database = '${databaseLiteral}' AND table = '${tableLiteral}'
-      `;
-      const colsRes = await executeClickHouseQuery(config, columnsQuery);
-      
-      // Query row count
-      const countQuery = `SELECT count() as cnt FROM ${tableIdentifier}`;
-      const countRes = await executeClickHouseQuery(config, countQuery);
-      const rowCount = countRes.success && countRes.rows && countRes.rows[0] ? Number(countRes.rows[0].cnt) : 0;
+    if (!tableRefs.length) {
+      return res.json({ success: true, schema: { tables: [], databases: [], selectedDatabase } });
+    }
 
-      // Query sample rows
-      const sampleQuery = `SELECT * FROM ${tableIdentifier} LIMIT 3`;
-      const sampleRes = await executeClickHouseQuery(config, sampleQuery);
-
-      const isEventLog = colsRes.rows?.some((c: any) => c.name === "EventPresentation") && colsRes.rows?.some((c: any) => c.name === "SeverityPresentation");
-
-      tables.push({
-        name: displayName,
-        database: tableDatabase,
-        columns: colsRes.rows?.map((c: any) => ({
-          name: c.name,
-          type: c.type,
-          comment: c.comment || undefined
-        })) || [],
-        rowCount,
-        sampleRows: sampleRes.success ? sampleRes.rows : [],
-        isEventLog
+    // Single batched query for the columns of every discovered table.
+    const tableKey = (db: string, table: string) => `${db} ${table}`;
+    const tupleList = tableRefs
+      .map((r: any) => `('${escapeClickHouseString(r.database)}','${escapeClickHouseString(r.name)}')`)
+      .join(",");
+    const columnsQuery = `
+      SELECT database, table, name, type, comment
+      FROM system.columns
+      WHERE (database, table) IN (${tupleList})
+      ORDER BY database, table, position
+    `;
+    const columnsRes = await executeClickHouseQuery(config, columnsQuery);
+    const columnsByTable = new Map<string, Array<{ name: string; type: string; comment?: string }>>();
+    for (const row of columnsRes.rows || []) {
+      const key = tableKey(row.database, row.table);
+      if (!columnsByTable.has(key)) columnsByTable.set(key, []);
+      columnsByTable.get(key)!.push({
+        name: row.name,
+        type: row.type,
+        comment: row.comment || undefined
       });
     }
+
+    // Preview rows: only for the most relevant tables (selected DB first),
+    // fetched in parallel with bounded concurrency.
+    const sampleTargets = tableRefs.slice(0, SCHEMA_SAMPLE_TABLE_LIMIT);
+    const samplesByTable = new Map<string, any[]>();
+    await mapWithConcurrency(sampleTargets, SCHEMA_SAMPLE_CONCURRENCY, async (ref: any) => {
+      const identifier = quoteClickHouseTable(ref.database, ref.name);
+      const sampleRes = await executeClickHouseQuery(config, `SELECT * FROM ${identifier} LIMIT 3`, 20000);
+      samplesByTable.set(tableKey(ref.database, ref.name), sampleRes.success ? (sampleRes.rows || []) : []);
+    });
+
+    const tables = tableRefs.map((ref: any) => {
+      const key = tableKey(ref.database, ref.name);
+      const columns = columnsByTable.get(key) || [];
+      // Recognise both the demo schema (EventPresentation/SeverityPresentation)
+      // and the real OneSTools.EventLog exporter schema (Event/Severity).
+      const colNames = new Set(columns.map((c) => c.name));
+      const hasEvent = colNames.has("Event") || colNames.has("EventPresentation");
+      const hasSeverity = colNames.has("Severity") || colNames.has("SeverityPresentation");
+      return {
+        name: schemaTableName(ref.database, ref.name, selectedDatabase),
+        database: ref.database,
+        columns,
+        rowCount: ref.rowCount,
+        sampleRows: samplesByTable.get(key) || [],
+        isEventLog: hasEvent && hasSeverity
+      };
+    });
 
     const databases = uniqueSorted(tableRefs.map((tableRef: any) => tableRef.database));
     res.json({ success: true, schema: { tables, databases, selectedDatabase } });
@@ -663,34 +749,25 @@ app.post("/api/clickhouse/query", async (req, res) => {
   }
 
   if (isDemo) {
-    // Use Gemini to execute query in Demo Mode over MOCK_DATASET
+    // Simulate query execution over MOCK_DATASET using the configured AI provider.
     try {
-      const response = await ai.models.generateContent({
-        model: GEMINI_MODEL,
-        contents: `
-          Вы являетесь симулятором базы данных ClickHouse. 
-          Перед вами массив записей журнала регистрации 1С (EventLogItems) в формате JSON.
-          Вам передан ClickHouse SQL-запрос. Ваша задача — выполнить этот запрос над предоставленными данными и вернуть результат СТРОГО в формате JSON.
+      const demoSystemPrompt = withCustomSystemPrompt(
+        "Вы являетесь симулятором базы данных ClickHouse. Вам передан массив записей журнала регистрации 1С (EventLogItems) и ClickHouse SQL-запрос. Выполните запрос над данными и верните результат строго в формате JSON.",
+        aiConfig
+      );
+      const demoUserPrompt = `Запрос: ${query}
 
-          Запрос: ${query}
+Вы должны вернуть JSON объект, содержащий три поля:
+1. "meta": массив объектов { "name": string, "type": string } с описанием возвращаемых полей и их типов.
+2. "data": массив объектов с результатами выполнения запроса.
+3. "rows": число строк в результате.
 
-          Вы должны вернуть JSON объект, содержащий три поля:
-          1. "meta": массив объектов { "name": string, "type": string } с описанием возвращаемых полей и их типов.
-          2. "data": массив объектов с результатами выполнения запроса.
-          3. "rows": число строк в результате.
+Вот данные EventLogItems:
+${JSON.stringify(MOCK_DATASET.slice(0, 100))}
 
-          Вот данные EventLogItems:
-          ${JSON.stringify(MOCK_DATASET.slice(0, 100))} // Передаем срез для экономии токенов
+Внимание: возвращайте ТОЛЬКО валидный JSON объект. Никаких markdown блоков, комментариев или лишнего текста вокруг JSON.`;
 
-          Внимание: возвращайте ТОЛЬКО валидный JSON объект. Никаких markdown блоков, комментариев или лишнего текста вокруг JSON.
-        `,
-        config: {
-          responseMimeType: "application/json"
-        }
-      });
-
-      const text = response.text?.trim() || "{}";
-      const resultObj = JSON.parse(text);
+      const resultObj = await requestAiJson(demoSystemPrompt, demoUserPrompt, aiConfig);
 
       const columns = resultObj.meta?.map((m: any) => m.name) || [];
       const columnTypes: Record<string, string> = {};
@@ -708,8 +785,8 @@ app.post("/api/clickhouse/query", async (req, res) => {
         elapsedMs: 45 // Simulated latency
       });
     } catch (err: any) {
-      // Fallback simple engine if Gemini fails or times out
-      console.error("Gemini query execution failed, falling back to basic mock simulation", err);
+      // Fallback simple engine if the AI simulator fails or times out
+      console.error("AI query simulation failed, falling back to basic mock simulation", err);
       // Basic filtering: if query mentions SeverityPresentation, do basic mock grouping
       const isErrorQuery = query.toLowerCase().includes("ошибка") || query.toLowerCase().includes("error") || query.toLowerCase().includes("severitypresentation = 'ошибка'");
       const rows = isErrorQuery 
@@ -727,8 +804,12 @@ app.post("/api/clickhouse/query", async (req, res) => {
     }
   }
 
-  // Real ClickHouse execution
-  const result = await executeClickHouseQuery(config, query);
+  // Real ClickHouse execution (with a protective row cap).
+  const capped = applyRowLimit(query);
+  const result = await executeClickHouseQuery(config, capped.sql);
+  if (result.success && capped.applied) {
+    result.limitApplied = MAX_RESULT_ROWS;
+  }
   if (!result.success && question && schema && aiConfig) {
     try {
       const repair = await repairSqlWithAi({
@@ -744,10 +825,12 @@ app.post("/api/clickhouse/query", async (req, res) => {
           throw new Error("AI suggested non-read-only SQL, auto-repair was rejected.");
         }
 
-        const repairedResult = await executeClickHouseQuery(config, repair.sql);
+        const cappedRepair = applyRowLimit(repair.sql);
+        const repairedResult = await executeClickHouseQuery(config, cappedRepair.sql);
         return res.json({
           ...repairedResult,
           sql: repair.sql,
+          limitApplied: repairedResult.success && cappedRepair.applied ? MAX_RESULT_ROWS : undefined,
           repair: {
             originalSql: query,
             originalError: result.error,
@@ -933,7 +1016,7 @@ async function requestAiJson(systemPrompt: string, userPrompt: string, aiConfig:
   }
 
   const selectedModel = aiConfig?.geminiModel || GEMINI_MODEL;
-  const response = await ai.models.generateContent({
+  const response = await getGeminiClient().models.generateContent({
     model: selectedModel,
     contents: `${systemPrompt}\n\n${userPrompt}`,
     config: {
@@ -1093,8 +1176,11 @@ Strict table rules:
    - toHour(DateTime) или toStartOfHour(DateTime) для группировки по часам
    - count() для подсчета строк
    - bar() или другие специальные функции при необходимости
-3. 1С журнал регистрации содержит поля SeverityPresentation (важность: 'Ошибка', 'Предупреждение', 'Информация', 'Примечание') и EventPresentation (событие: '_$Session$_.Start', '_$Session$_.Finish', '_$Data$_.Post' и др.). Помните об этом при фильтрации.
-4. Если в схеме указана таблица EventLogItems, пишите запрос к ней.
+3. Журнал регистрации 1С содержит поле важности события (значения: 'Ошибка', 'Предупреждение', 'Информация', 'Примечание') и поле события. В зависимости от экспортёра имена колонок различаются:
+   - реальный экспортёр OneSTools.EventLog: Severity (важность), Event (событие), User (пользователь), Application (приложение), Metadata (метаданные), DateTime (дата/время);
+   - демо-схема: SeverityPresentation, EventPresentation, UserName, ApplicationPresentation, MetadataPresentation.
+   ВСЕГДА используйте имена колонок строго из переданной схемы, не выдумывайте их.
+4. Если в схеме есть таблица EventLogItems (или иная таблица журнала), пишите запрос к ней, используя её реальные колонки.
 5. Не используйте неподдерживаемый синтаксис (например, ClickHouse не поддерживает стандартный OUTER JOIN в некоторых старых версиях, но простые запросы агрегации полностью поддерживаются).
 6. Возвращайте результат СТРОГО в формате JSON с полями:
    - "sql": строка с чистым, готовым к выполнению SQL-запросом.
@@ -1176,7 +1262,7 @@ ${JSON.stringify(resultRows?.slice(0, 50))}
       res.json({ success: true, analysis: parsed });
     } else {
       const selectedModel = aiConfig?.geminiModel || GEMINI_MODEL;
-      const response = await ai.models.generateContent({
+      const response = await getGeminiClient().models.generateContent({
         model: selectedModel,
         contents: `${systemPrompt}\n\n${userPrompt}`,
         config: {

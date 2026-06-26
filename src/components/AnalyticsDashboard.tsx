@@ -41,22 +41,14 @@ export default function AnalyticsDashboard({
   analysis,
   loading
 }: AnalyticsDashboardProps) {
-  if (loading) {
-    return (
-      <div id="analytics-loading" className="bg-white rounded-xl border border-slate-200 p-8 shadow-sm flex flex-col items-center justify-center gap-3">
-        <div className="w-10 h-10 border-4 border-slate-100 border-t-indigo-600 rounded-full animate-spin"></div>
-        <span className="text-xs font-semibold text-slate-500">Генерируем интеллектуальный аналитический отчет...</span>
-      </div>
-    );
-  }
-
-  if (!result || !result.success || !analysis) return null;
-
+  // NOTE: all hooks must run unconditionally on every render (Rules of Hooks),
+  // so they live above any early returns below.
   const chartData = useMemo(() => {
-    if (!result.rows || result.rows.length === 0 || !analysis.suggestedChart) return [];
-    
-    // Sort or transform data if necessary. Make sure numbers are indeed numbers
-    const yKey = analysis.suggestedChart.yAxis;
+    const chart = analysis?.suggestedChart;
+    if (!result?.rows || result.rows.length === 0 || !chart) return [];
+
+    // Coerce the Y-axis values to numbers so Recharts plots them correctly.
+    const yKey = chart.yAxis;
     return result.rows.map((row) => {
       const copy = { ...row };
       if (yKey && copy[yKey] !== undefined) {
@@ -65,6 +57,17 @@ export default function AnalyticsDashboard({
       return copy;
     });
   }, [result, analysis]);
+
+  if (loading) {
+    return (
+      <div id="analytics-loading" className="surface-card rounded-2xl p-8 flex flex-col items-center justify-center gap-3">
+        <div className="w-10 h-10 border-[3px] border-brand-100 border-t-brand-500 rounded-full animate-spin"></div>
+        <span className="text-xs font-semibold text-slate-500">Формируем интеллектуальный аналитический отчёт…</span>
+      </div>
+    );
+  }
+
+  if (!result || !result.success || !analysis) return null;
 
   const hasChart = analysis.suggestedChart && analysis.suggestedChart.type !== "none" && chartData.length > 0;
 
@@ -208,15 +211,15 @@ export default function AnalyticsDashboard({
     <div id="analytics-dashboard" className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-fade-in">
       {/* Visual representation */}
       {hasChart && (
-        <div className="lg:col-span-7 bg-white rounded-xl border border-slate-200 p-6 shadow-sm flex flex-col justify-between">
+        <div className="lg:col-span-7 surface-card rounded-2xl p-6 flex flex-col justify-between">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
-              <BarChart2 size={18} className="text-indigo-600" />
+              <BarChart2 size={18} className="text-brand-500" />
               <h3 className="font-semibold text-sm text-slate-800 tracking-tight">
                 {analysis.suggestedChart?.title || "Визуальный анализ"}
               </h3>
             </div>
-            <span className="text-[10px] bg-indigo-50 text-indigo-600 px-2.5 py-0.5 rounded-full font-semibold border border-indigo-100">
+            <span className="text-[10px] bg-brand-50 text-brand-600 px-2.5 py-0.5 rounded-full font-semibold border border-brand-100">
               График Recharts ({analysis.suggestedChart?.type})
             </span>
           </div>
@@ -228,17 +231,17 @@ export default function AnalyticsDashboard({
       )}
 
       {/* AI summary & insights */}
-      <div className={`${hasChart ? "lg:col-span-5" : "lg:col-span-12"} bg-white rounded-xl border border-slate-200 p-6 shadow-sm`}>
+      <div className={`${hasChart ? "lg:col-span-5" : "lg:col-span-12"} surface-card rounded-2xl p-6`}>
         <div className="flex items-center gap-2 mb-4">
-          <FileText size={18} className="text-violet-600" />
-          <h3 className="font-semibold text-sm text-slate-800 tracking-tight">AI-Аналитика результатов</h3>
+          <FileText size={18} className="text-brand-500" />
+          <h3 className="font-semibold text-sm text-slate-800 tracking-tight">AI-аналитика результатов</h3>
         </div>
 
         <div className="space-y-5">
           {/* Summary */}
           {analysis.summary && (
-            <div className="bg-violet-50/40 rounded-xl p-4 border border-violet-100/50">
-              <span className="flex items-center gap-1.5 text-xs font-semibold text-violet-800 mb-2 uppercase tracking-wide">
+            <div className="bg-brand-50/50 rounded-xl p-4 border border-brand-100/60">
+              <span className="flex items-center gap-1.5 text-xs font-semibold text-brand-700 mb-2 uppercase tracking-wide">
                 <CheckCircle2 size={13} />
                 Краткий вывод
               </span>
@@ -256,7 +259,7 @@ export default function AnalyticsDashboard({
               <ul className="space-y-3" id="insights-list">
                 {analysis.insights.map((insight, idx) => (
                   <li key={idx} className="flex gap-2.5 items-start text-xs text-slate-600 leading-relaxed">
-                    <span className="w-1.5 h-1.5 rounded-full bg-violet-600 mt-1.5 shrink-0"></span>
+                    <span className="w-1.5 h-1.5 rounded-full bg-brand-500 mt-1.5 shrink-0"></span>
                     <span>{insight}</span>
                   </li>
                 ))}

@@ -51,6 +51,7 @@ export interface QueryResult {
   error?: string;
   elapsedMs?: number;
   rowCount?: number;
+  limitApplied?: number;
   repair?: {
     originalSql: string;
     originalError?: string;
