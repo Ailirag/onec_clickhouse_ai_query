@@ -32,6 +32,15 @@ export default function ClickHouseConnector({
   const isLocked = role === "user";
 
   useEffect(() => {
+    setHost(activeConfig.host);
+    setPort(activeConfig.port);
+    setUsername(activeConfig.username);
+    setPassword(activeConfig.password || "");
+    setDatabase(activeConfig.database);
+    setUseHttps(activeConfig.useHttps);
+  }, [activeConfig]);
+
+  useEffect(() => {
     // Only trigger updates if administrator is active
     if (!isLocked) {
       onConfigChange({ host, port, username, password, database, useHttps }, isDemo);
@@ -221,7 +230,6 @@ export default function ClickHouseConnector({
               }`}
               placeholder="default"
               disabled={isDemo || isLocked}
-              required={!isDemo}
               id="database-input"
             />
           </div>

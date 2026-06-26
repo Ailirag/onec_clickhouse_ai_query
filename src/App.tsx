@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { ClickHouseConfig, DbSchema, QueryResult, QueryAnalysis, QueryHistoryItem, AiConfig, UserRole } from "./types";
+import { ClickHouseConfig, DbSchema, QueryResult, QueryAnalysis, QueryHistoryItem, AiConfig, UserRole, AiSessionState } from "./types";
 import ClickHouseConnector from "./components/ClickHouseConnector";
 import DbSchemaBrowser from "./components/DbSchemaBrowser";
 import AiQueryInterface from "./components/AiQueryInterface";
@@ -28,6 +28,34 @@ const DEFAULT_AI_CONFIG: AiConfig = {
   yandexModel: "yandexgpt/latest"
 };
 
+const SESSION_COOKIE = "onec_ai_session";
+
+function readCookie(name: string) {
+  if (typeof document === "undefined") return null;
+  const value = document.cookie
+    .split("; ")
+    .find((part) => part.startsWith(`${name}=`))
+    ?.split("=")[1];
+  return value ? decodeURIComponent(value) : null;
+}
+
+function writeCookie(name: string, value: string, maxAgeSeconds = 60 * 60 * 24 * 30) {
+  if (typeof document === "undefined") return;
+  document.cookie = `${name}=${encodeURIComponent(value)}; path=/; max-age=${maxAgeSeconds}; SameSite=Lax`;
+}
+
+function readSessionCookie(): AiSessionState {
+  const saved = readCookie(SESSION_COOKIE);
+  if (!saved) return {};
+
+  try {
+    return JSON.parse(saved) as AiSessionState;
+  } catch {
+    writeCookie(SESSION_COOKIE, "", 0);
+    return {};
+  }
+}
+
 function readStoredJson<T>(key: string, fallback: T): T {
   const saved = localStorage.getItem(key);
   if (!saved) return fallback;
@@ -41,8 +69,15 @@ function readStoredJson<T>(key: string, fallback: T): T {
 }
 
 export default function App() {
+  const [aiSession, setAiSession] = useState<AiSessionState>(() => readSessionCookie());
+
   const [config, setConfig] = useState<ClickHouseConfig>(() => {
-    return readStoredJson("clickhouse_config", DEFAULT_CONFIG);
+    const saved = readStoredJson("clickhouse_config", DEFAULT_CONFIG);
+    const session = readSessionCookie();
+    return {
+      ...saved,
+      database: session.selectedDatabase ?? saved.database ?? ""
+    };
   });
 
   const [aiConfig, setAiConfig] = useState<AiConfig>(() => {
@@ -122,6 +157,10 @@ export default function App() {
     localStorage.setItem("query_history", JSON.stringify(history));
   }, [history]);
 
+  useEffect(() => {
+    writeCookie(SESSION_COOKIE, JSON.stringify(aiSession));
+  }, [aiSession]);
+
   // Load Schema on mount or config/mode/auth change
   const fetchSchema = async (
     overrideConfig: ClickHouseConfig = config,
@@ -163,12 +202,29 @@ export default function App() {
   const handleConfigChange = (newConfig: ClickHouseConfig, demo: boolean) => {
     setConfig(newConfig);
     setIsDemoMode(demo);
+    setAiSession((prev) => {
+      const database = newConfig.database.trim();
+      if (database === (prev.selectedDatabase || "")) return prev;
+      return {
+        ...prev,
+        selectedDatabase: database || undefined
+      };
+    });
   };
 
   const handleConnectionVerified = (verifiedConfig: ClickHouseConfig, demo: boolean) => {
     setConfig(verifiedConfig);
     setIsDemoMode(demo);
     fetchSchema(verifiedConfig, demo);
+  };
+
+  const handleAiSessionChange = (nextSession: AiSessionState) => {
+    setAiSession(nextSession);
+    if (nextSession.selectedDatabase && nextSession.selectedDatabase !== config.database) {
+      const nextConfig = { ...config, database: nextSession.selectedDatabase };
+      setConfig(nextConfig);
+      fetchSchema(nextConfig, isDemoMode);
+    }
   };
 
   const handleRunQuery = async (sql: string, question: string) => {
@@ -522,6 +578,8 @@ export default function App() {
             onRunQuery={handleRunQuery}
             loading={runningQuery || generatingAnalysis}
             aiConfig={aiConfig}
+            session={aiSession}
+            onSessionChange={handleAiSessionChange}
           />
 
           {/* AI Analytics & visualizations */}

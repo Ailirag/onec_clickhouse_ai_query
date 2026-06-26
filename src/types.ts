@@ -24,6 +24,22 @@ export interface TableInfo {
 
 export interface DbSchema {
   tables: TableInfo[];
+  databases?: string[];
+  selectedDatabase?: string;
+}
+
+export interface AiSessionState {
+  selectedDatabase?: string;
+  lastQuestion?: string;
+  lastSql?: string;
+}
+
+export interface DialogMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  sql?: string;
+  options?: string[];
 }
 
 export interface QueryResult {

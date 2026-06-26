@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Sparkles, Terminal, ChevronRight, Play, AlertCircle, HelpCircle, Code } from "lucide-react";
-import { DbSchema, AiConfig } from "../types";
+import { DbSchema, AiConfig, AiSessionState, DialogMessage } from "../types";
 import { readJsonResponse } from "../api";
 
 interface AiQueryInterfaceProps {
@@ -8,6 +8,8 @@ interface AiQueryInterfaceProps {
   onRunQuery: (sql: string, question: string) => void;
   loading: boolean;
   aiConfig: AiConfig;
+  session: AiSessionState;
+  onSessionChange: (session: AiSessionState) => void;
 }
 
 const QUICK_QUESTIONS = [
@@ -41,13 +43,33 @@ export default function AiQueryInterface({
   schema,
   onRunQuery,
   loading,
-  aiConfig
+  aiConfig,
+  session,
+  onSessionChange
 }: AiQueryInterfaceProps) {
   const [question, setQuestion] = useState("");
   const [generating, setGenerating] = useState(false);
   const [generatedSql, setGeneratedSql] = useState("");
   const [explanation, setExplanation] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [messages, setMessages] = useState<DialogMessage[]>([]);
+
+  const addMessage = (message: Omit<DialogMessage, "id">) => {
+    setMessages((prev) => [
+      ...prev,
+      {
+        ...message,
+        id: `${Date.now()}-${prev.length}`
+      }
+    ].slice(-12));
+  };
+
+  const handleDatabaseChoice = (database: string) => {
+    const nextSession = { ...session, selectedDatabase: database };
+    onSessionChange(nextSession);
+    addMessage({ role: "user", content: `Use database ${database}` });
+    addMessage({ role: "assistant", content: `Database context fixed: ${database}. Continue the dialog or ask for a query.` });
+  };
 
   const handleGenerateSql = async (qText: string) => {
     if (!qText.trim()) return;
@@ -59,6 +81,7 @@ export default function AiQueryInterface({
     setError(null);
     setGeneratedSql("");
     setExplanation("");
+    addMessage({ role: "user", content: qText });
 
     try {
       const token = localStorage.getItem("auth_token") || "";
@@ -71,13 +94,45 @@ export default function AiQueryInterface({
         body: JSON.stringify({
           question: qText,
           schema,
-          aiConfig
+          aiConfig,
+          session,
+          dialog: messages.slice(-8).map((message) => ({
+            role: message.role,
+            content: message.content,
+            sql: message.sql
+          }))
         })
       });
       const data = await readJsonResponse(response);
       if (data.success) {
+        if (data.session) {
+          onSessionChange(data.session);
+        }
+
+        if (data.action === "select_database") {
+          addMessage({
+            role: "assistant",
+            content: data.message || "Choose a database for this dialog.",
+            options: data.options || []
+          });
+          return;
+        }
+
+        if (data.action === "switch_database") {
+          addMessage({
+            role: "assistant",
+            content: data.message || `Switched database context to ${data.database}.`
+          });
+          return;
+        }
+
         setGeneratedSql(data.sql);
         setExplanation(data.explanation);
+        addMessage({
+          role: "assistant",
+          content: data.explanation || "SQL generated.",
+          sql: data.sql
+        });
       } else {
         setError(data.error || "Не удалось сгенерировать SQL-запрос.");
       }
@@ -114,6 +169,61 @@ export default function AiQueryInterface({
           <p className="text-xs text-slate-500">Задавайте вопросы о работе 1С на естественном русском языке</p>
         </div>
       </div>
+
+      <div className="mb-4 flex flex-wrap items-center gap-2 text-xs">
+        <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 border border-slate-200">
+          DB: {session.selectedDatabase || "not selected"}
+        </span>
+        {schema?.databases?.map((database) => (
+          <button
+            key={database}
+            type="button"
+            onClick={() => handleDatabaseChoice(database)}
+            className={`px-2.5 py-1 rounded-lg border text-xs font-semibold transition-colors ${
+              session.selectedDatabase === database
+                ? "bg-violet-50 text-violet-700 border-violet-200"
+                : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"
+            }`}
+          >
+            {database}
+          </button>
+        ))}
+      </div>
+
+      {messages.length > 0 && (
+        <div className="mb-5 space-y-2 max-h-64 overflow-y-auto pr-1" id="ai-dialog-messages">
+          {messages.map((message) => (
+            <div
+              key={message.id}
+              className={`rounded-xl border p-3 text-xs ${
+                message.role === "user"
+                  ? "bg-slate-50 border-slate-100 text-slate-700"
+                  : "bg-violet-50/60 border-violet-100 text-slate-700"
+              }`}
+            >
+              <div className="font-semibold mb-1 text-slate-500">{message.role === "user" ? "You" : "Assistant"}</div>
+              <div className="leading-normal whitespace-pre-wrap">{message.content}</div>
+              {message.options && message.options.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {message.options.map((database) => (
+                    <button
+                      key={database}
+                      type="button"
+                      onClick={() => handleDatabaseChoice(database)}
+                      className="px-3 py-1.5 rounded-lg bg-white border border-violet-200 text-violet-700 font-semibold hover:bg-violet-50 transition-colors"
+                    >
+                      {database}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {message.sql && (
+                <pre className="mt-3 p-3 rounded-lg bg-slate-950 text-emerald-400 overflow-x-auto text-[11px]">{message.sql}</pre>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       <form onSubmit={handleSubmitQuestion} className="space-y-4">
         <div>

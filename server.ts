@@ -94,6 +94,19 @@ function schemaTableName(database: string, table: string, selectedDatabase: stri
   return database === selectedDatabase ? table : `${database}.${table}`;
 }
 
+function uniqueSorted(values: string[]) {
+  return Array.from(new Set(values.filter(Boolean))).sort((a, b) => a.localeCompare(b));
+}
+
+function findMentionedDatabase(question: string, databases: string[]) {
+  const normalizedQuestion = String(question || "").toLowerCase();
+  return databases.find((database) => normalizedQuestion.includes(database.toLowerCase()));
+}
+
+function isDatabaseSwitchRequest(question: string) {
+  return /\b(switch|change|select|use)\b/i.test(question || "") || /переключ|смени|выбери|используй|поменяй/i.test(question || "");
+}
+
 function stripSqlComments(query: string) {
   return query
     .replace(/--.*$/gm, "")
@@ -631,7 +644,8 @@ app.post("/api/clickhouse/schema", async (req, res) => {
       });
     }
 
-    res.json({ success: true, schema: { tables } });
+    const databases = uniqueSorted(tableRefs.map((tableRef: any) => tableRef.database));
+    res.json({ success: true, schema: { tables, databases, selectedDatabase } });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message || err });
   }
@@ -985,10 +999,48 @@ Format:
 
 // 4. Generate SQL from natural language
 app.post("/api/gemini/generate-sql", async (req, res) => {
-  const { question, schema, isDemo, aiConfig } = req.body;
+  const { question, schema, isDemo, aiConfig, session, dialog } = req.body;
 
   try {
-    const tableNames = (schema?.tables || []).map((table: any) => table.name).filter(Boolean);
+    const allTables = schema?.tables || [];
+    const availableDatabases = uniqueSorted([
+      ...(schema?.databases || []),
+      ...allTables.map((table: any) => table.database)
+    ]);
+    const requestedDatabase = findMentionedDatabase(question, availableDatabases);
+    const sessionDatabase = String(session?.selectedDatabase || "").trim();
+    const validSessionDatabase = sessionDatabase && availableDatabases.includes(sessionDatabase) ? sessionDatabase : "";
+
+    if (isDatabaseSwitchRequest(question) && requestedDatabase) {
+      return res.json({
+        success: true,
+        action: "switch_database",
+        database: requestedDatabase,
+        message: `Switched dialog context to database "${requestedDatabase}". Ask the question again or continue with this database.`,
+        session: { ...session, selectedDatabase: requestedDatabase }
+      });
+    }
+
+    let selectedDatabase = validSessionDatabase || (availableDatabases.length === 1 ? availableDatabases[0] : "");
+    if (!selectedDatabase && availableDatabases.length > 1 && !isDemo) {
+      return res.json({
+        success: true,
+        action: "select_database",
+        message: "Choose a ClickHouse database for this dialog before generating SQL.",
+        options: availableDatabases,
+        session
+      });
+    }
+
+    const scopedTables = selectedDatabase
+      ? allTables.filter((table: any) => !table.database || table.database === selectedDatabase)
+      : allTables;
+    const effectiveSchema = {
+      ...schema,
+      selectedDatabase,
+      tables: scopedTables
+    };
+    const tableNames = scopedTables.map((table: any) => table.name).filter(Boolean);
     if (!tableNames.length) {
       return res.status(400).json({
         success: false,
@@ -1004,7 +1056,13 @@ Available ClickHouse table names. Use table names exactly as listed here:
 ${JSON.stringify(tableNames)}
 
 Full ClickHouse schema:
-${JSON.stringify(schema)}
+${JSON.stringify(effectiveSchema)}
+
+Dialog context:
+${JSON.stringify((dialog || []).slice(-8))}
+
+Session memory:
+${JSON.stringify(session || {})}
 
 Strict table rules:
 1. Use only tables from the available table list.
@@ -1035,7 +1093,17 @@ Strict table rules:
 }`;
 
     const result = await requestAiJson(systemPrompt, userPrompt, aiConfig);
-    res.json({ success: true, sql: result.sql, explanation: result.explanation });
+    res.json({
+      success: true,
+      sql: result.sql,
+      explanation: result.explanation,
+      session: {
+        ...session,
+        selectedDatabase,
+        lastQuestion: question,
+        lastSql: result.sql
+      }
+    });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message || err });
   }
