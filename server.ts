@@ -128,8 +128,10 @@ function buildClickHouseUrl(config: ClickHouseConfig) {
   let hostClean = rawHost;
   let path = "/";
   let portClean = config.port;
+  let hasPath = false;
 
   if (hostClean.includes("/")) {
+    hasPath = true;
     const slashIndex = hostClean.indexOf("/");
     path = hostClean.slice(slashIndex) || "/";
     const parts = hostClean.split("/");
@@ -145,8 +147,10 @@ function buildClickHouseUrl(config: ClickHouseConfig) {
     }
   }
 
-  const protocol = config.useHttps ? "https" : "http";
-  const url = new URL(`${protocol}://${hostClean}:${portClean || (config.useHttps ? 443 : 8123)}${path}`);
+  const shouldInferHttpsProxy = hasPath && !config.useHttps && (!portClean || portClean === 8123);
+  const protocol = config.useHttps || shouldInferHttpsProxy ? "https" : "http";
+  const port = shouldInferHttpsProxy ? 443 : (portClean || (config.useHttps ? 443 : 8123));
+  const url = new URL(`${protocol}://${hostClean}:${port}${path}`);
   url.searchParams.set("database", config.database || "default");
   url.searchParams.set("default_format", "JSON");
   return url.toString();
@@ -435,9 +439,10 @@ const MOCK_SCHEMA = {
 // Real ClickHouse Executer
 const executeClickHouseQuery = async (config: ClickHouseConfig, query: string): Promise<QueryResult> => {
   const start = Date.now();
+  let diagnostics: Record<string, any> | null = null;
   try {
     const url = buildClickHouseUrl(config);
-    const diagnostics = {
+    diagnostics = {
       endpoint: redactClickHouseUrl(url),
       username: config.username || "(empty)",
       hasPassword: Boolean(config.password),
@@ -501,10 +506,17 @@ const executeClickHouseQuery = async (config: ClickHouseConfig, query: string): 
       elapsedMs
     };
   } catch (err: any) {
+    const details = [
+      err.message || String(err),
+      err.cause?.code ? `code=${err.cause.code}` : "",
+      err.cause?.address ? `address=${err.cause.address}` : "",
+      err.cause?.port ? `port=${err.cause.port}` : ""
+    ].filter(Boolean).join("; ");
+
     return {
       success: false,
       sql: query,
-      error: `Network Connection Error: ${err.message || err}`,
+      error: `Network Connection Error: ${details}${diagnostics ? `\n\nДиагностика подключения: ${JSON.stringify(diagnostics)}` : ""}`,
       elapsedMs: Date.now() - start
     };
   }
