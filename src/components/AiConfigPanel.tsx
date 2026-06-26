@@ -29,6 +29,7 @@ export default function AiConfigPanel({ config, onConfigChange, role }: AiConfig
   const [yandexApiKey, setYandexApiKey] = useState(config.yandexApiKey);
   const [yandexFolderId, setYandexFolderId] = useState(config.yandexFolderId);
   const [yandexModel, setYandexModel] = useState(config.yandexModel);
+  const [systemPrompt, setSystemPrompt] = useState(config.systemPrompt || "");
   const [customYandexUri, setCustomYandexUri] = useState(
     YANDEX_MODELS.some(m => m.id === config.yandexModel) ? "" : config.yandexModel
   );
@@ -41,6 +42,7 @@ export default function AiConfigPanel({ config, onConfigChange, role }: AiConfig
     setGeminiModel(config.geminiModel);
     setYandexApiKey(config.yandexApiKey);
     setYandexFolderId(config.yandexFolderId);
+    setSystemPrompt(config.systemPrompt || "");
     
     const isPredefined = YANDEX_MODELS.some(m => m.id === config.yandexModel);
     if (isPredefined) {
@@ -61,10 +63,11 @@ export default function AiConfigPanel({ config, onConfigChange, role }: AiConfig
         geminiModel,
         yandexApiKey,
         yandexFolderId,
-        yandexModel: finalModel
+        yandexModel: finalModel,
+        systemPrompt
       });
     }
-  }, [provider, geminiModel, yandexApiKey, yandexFolderId, yandexModel, customYandexUri, role]);
+  }, [provider, geminiModel, yandexApiKey, yandexFolderId, yandexModel, customYandexUri, systemPrompt, role]);
 
   const handleSaveNotification = () => {
     if (role === "admin") {
@@ -157,6 +160,29 @@ export default function AiConfigPanel({ config, onConfigChange, role }: AiConfig
         >
           YandexGPT
         </button>
+      </div>
+
+      <div className="mb-5">
+        <label className="block text-xs font-semibold text-slate-600 mb-1.5 uppercase tracking-wider">
+          Общий системный промт
+        </label>
+        <textarea
+          value={systemPrompt}
+          disabled={isLocked}
+          onChange={(e) => {
+            setSystemPrompt(e.target.value);
+            handleSaveNotification();
+          }}
+          rows={5}
+          className={`w-full px-3.5 py-2 rounded-lg border border-slate-200 bg-slate-50/50 text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 transition-all placeholder:text-slate-400 resize-y ${
+            isLocked ? "opacity-75 cursor-not-allowed bg-slate-100" : ""
+          }`}
+          placeholder="Дополнительные инструкции для генерации SQL, исправления запросов и аналитики. Например: использовать только выбранную базу, отдавать короткие LIMIT-запросы, явно пояснять допущения."
+          id="global-system-prompt-input"
+        />
+        <p className="text-[10px] text-slate-400 mt-1 leading-normal">
+          Применяется к генерации SQL, автоматическому исправлению запроса и аналитике результата.
+        </p>
       </div>
 
       {/* Gemini Settings */}

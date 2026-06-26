@@ -5,9 +5,20 @@ import { Search, ChevronLeft, ChevronRight, Copy, Check, Table2 } from "lucide-r
 interface QueryResultViewerProps {
   result: QueryResult | null;
   loading: boolean;
+  question?: string;
 }
 
-export default function QueryResultViewer({ result, loading }: QueryResultViewerProps) {
+function summarizeError(error = "") {
+  if (/ENOTFOUND/i.test(error)) return "DNS-имя не удалось разрешить.";
+  if (/TIMEOUT|UND_ERR_CONNECT_TIMEOUT/i.test(error)) return "Истекло время подключения.";
+  if (/AUTHENTICATION_FAILED|password is incorrect/i.test(error)) return "Ошибка авторизации.";
+  if (/UNKNOWN_TABLE|Unknown table/i.test(error)) return "В SQL указана неизвестная таблица.";
+  if (/Yandex/i.test(error) && /unknown model|404/i.test(error)) return "Модель Yandex не найдена.";
+  if (/fetch failed/i.test(error)) return "Сетевой запрос не выполнен.";
+  return "Запрос завершился с ошибкой.";
+}
+
+export default function QueryResultViewer({ result, loading, question }: QueryResultViewerProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(10);
@@ -57,11 +68,12 @@ export default function QueryResultViewer({ result, loading }: QueryResultViewer
   if (!result.success) {
     return (
       <div id="query-result-viewer-error" className="bg-red-50 border border-red-100 rounded-xl p-5 text-xs text-red-800 leading-normal flex flex-col gap-2.5">
-        <div className="font-bold text-sm">Ошибка выполнения ClickHouse:</div>
-        <pre className="p-3 bg-red-100/50 rounded-lg text-[11px] font-mono whitespace-pre-wrap select-text">{result.error}</pre>
-        <div className="text-[10px] text-red-600 font-semibold">
-          Проверьте синтаксис SQL-запроса, структуру таблиц или настройки подключения к ClickHouse.
-        </div>
+        <div className="font-bold text-sm">{summarizeError(result.error)}</div>
+        <div className="text-[11px] text-red-700">Проверьте подключение, выбранную базу, схему или синтаксис SQL.</div>
+        <details className="mt-1">
+          <summary className="cursor-pointer font-semibold text-red-700">Детали</summary>
+          <pre className="mt-2 p-3 bg-red-100/50 rounded-lg text-[11px] font-mono whitespace-pre-wrap select-text">{result.error}</pre>
+        </details>
       </div>
     );
   }
@@ -100,9 +112,21 @@ export default function QueryResultViewer({ result, loading }: QueryResultViewer
         </div>
       </div>
 
+      <div className="px-6 py-3 border-b border-slate-100 bg-white text-xs text-slate-600 space-y-2">
+        {question && (
+          <div>
+            <span className="font-semibold text-slate-500">Вопрос:</span> {question}
+          </div>
+        )}
+        <details>
+          <summary className="cursor-pointer font-semibold text-slate-500">Выполненный SQL</summary>
+          <pre className="mt-2 p-3 rounded-lg bg-slate-950 text-emerald-400 overflow-x-auto text-[11px]">{result.sql}</pre>
+        </details>
+      </div>
+
       {result.repair && (
         <div className="px-6 py-3 bg-amber-50 border-b border-amber-100 text-xs text-amber-900">
-          <div className="font-semibold mb-1">SQL was automatically repaired after a ClickHouse error.</div>
+          <div className="font-semibold mb-1">SQL был автоматически исправлен после ошибки ClickHouse.</div>
           {result.repair.explanation && (
             <div className="leading-normal">{result.repair.explanation}</div>
           )}

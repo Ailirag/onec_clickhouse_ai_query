@@ -944,6 +944,16 @@ async function requestAiJson(systemPrompt: string, userPrompt: string, aiConfig:
   return JSON.parse(response.text?.trim() || "{}");
 }
 
+function withCustomSystemPrompt(basePrompt: string, aiConfig: any) {
+  const customPrompt = String(aiConfig?.systemPrompt || "").trim();
+  if (!customPrompt) return basePrompt;
+
+  return `${basePrompt}
+
+Additional operator instructions:
+${customPrompt}`;
+}
+
 async function repairSqlWithAi({
   question,
   failedSql,
@@ -962,7 +972,10 @@ async function repairSqlWithAi({
     throw new Error("ClickHouse schema is empty. Refresh the table list before repairing SQL.");
   }
 
-  const systemPrompt = `You are a ClickHouse SQL reviewer. Repair a failed read-only SELECT/WITH/SHOW/DESCRIBE/EXPLAIN query using only the real schema. Return JSON only.`;
+  const systemPrompt = withCustomSystemPrompt(
+    `You are a ClickHouse SQL reviewer. Repair a failed read-only SELECT/WITH/SHOW/DESCRIBE/EXPLAIN query using only the real schema. Return JSON only.`,
+    aiConfig
+  );
   const userPrompt = `User question:
 "${question}"
 
@@ -1048,8 +1061,11 @@ app.post("/api/gemini/generate-sql", async (req, res) => {
       });
     }
 
-    const systemPrompt = `Вы — опытный аналитик баз данных и специалист по ClickHouse и 1С:Предприятие.
-Ваша задача — перевести вопрос пользователя на естественном языке в валидный ClickHouse SQL-запрос.`;
+    const systemPrompt = withCustomSystemPrompt(
+      `Вы — опытный аналитик баз данных и специалист по ClickHouse и 1С:Предприятие.
+Ваша задача — перевести вопрос пользователя на естественном языке в валидный ClickHouse SQL-запрос.`,
+      aiConfig
+    );
 
     const userPrompt = `Описание таблиц в базе данных:
 Available ClickHouse table names. Use table names exactly as listed here:
@@ -1114,7 +1130,10 @@ app.post("/api/gemini/explain-results", async (req, res) => {
   const { question, sql, resultRows, columns, aiConfig } = req.body;
 
   try {
-    const systemPrompt = `Вы — опытный бизнес-аналитик и специалист по мониторингу 1С.`;
+    const systemPrompt = withCustomSystemPrompt(
+      `Вы — опытный бизнес-аналитик и специалист по мониторингу 1С.`,
+      aiConfig
+    );
     const userPrompt = `Пользователь задал вопрос: "${question}"
 Для ответа был выполнен SQL-запрос к ClickHouse:
 \`\`\`sql

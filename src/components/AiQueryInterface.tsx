@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { Sparkles, Terminal, ChevronRight, Play, AlertCircle, HelpCircle, Code } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { Sparkles, ChevronRight, Play, AlertCircle, HelpCircle, Code, Database, BarChart3 } from "lucide-react";
 import { DbSchema, AiConfig, AiSessionState, DialogMessage } from "../types";
 import { readJsonResponse } from "../api";
 
@@ -10,6 +10,8 @@ interface AiQueryInterfaceProps {
   aiConfig: AiConfig;
   session: AiSessionState;
   onSessionChange: (session: AiSessionState) => void;
+  analyticsEnabled: boolean;
+  onAnalyticsToggle: (enabled: boolean) => void;
 }
 
 const QUICK_QUESTIONS = [
@@ -45,7 +47,9 @@ export default function AiQueryInterface({
   loading,
   aiConfig,
   session,
-  onSessionChange
+  onSessionChange,
+  analyticsEnabled,
+  onAnalyticsToggle
 }: AiQueryInterfaceProps) {
   const [question, setQuestion] = useState("");
   const [generating, setGenerating] = useState(false);
@@ -53,6 +57,11 @@ export default function AiQueryInterface({
   const [explanation, setExplanation] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [messages, setMessages] = useState<DialogMessage[]>([]);
+  const [databaseDraft, setDatabaseDraft] = useState(session.selectedDatabase || "");
+
+  useEffect(() => {
+    setDatabaseDraft(session.selectedDatabase || "");
+  }, [session.selectedDatabase]);
 
   const addMessage = (message: Omit<DialogMessage, "id">) => {
     setMessages((prev) => [
@@ -67,8 +76,9 @@ export default function AiQueryInterface({
   const handleDatabaseChoice = (database: string) => {
     const nextSession = { ...session, selectedDatabase: database };
     onSessionChange(nextSession);
-    addMessage({ role: "user", content: `Use database ${database}` });
-    addMessage({ role: "assistant", content: `Database context fixed: ${database}. Continue the dialog or ask for a query.` });
+    setDatabaseDraft(database);
+    addMessage({ role: "user", content: `Использовать базу ${database}` });
+    addMessage({ role: "assistant", content: `Контекст базы зафиксирован: ${database}. Продолжайте диалог или задайте вопрос для SQL-запроса.` });
   };
 
   const handleGenerateSql = async (qText: string) => {
@@ -170,24 +180,55 @@ export default function AiQueryInterface({
         </div>
       </div>
 
-      <div className="mb-4 flex flex-wrap items-center gap-2 text-xs">
-        <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 border border-slate-200">
-          DB: {session.selectedDatabase || "not selected"}
-        </span>
-        {schema?.databases?.map((database) => (
-          <button
-            key={database}
-            type="button"
-            onClick={() => handleDatabaseChoice(database)}
-            className={`px-2.5 py-1 rounded-lg border text-xs font-semibold transition-colors ${
-              session.selectedDatabase === database
-                ? "bg-violet-50 text-violet-700 border-violet-200"
-                : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"
-            }`}
-          >
-            {database}
-          </button>
-        ))}
+      <div className="mb-4 grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 text-xs">
+        <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+          <div className="flex items-center gap-2 text-slate-500 font-semibold mb-2">
+            <Database size={14} />
+            <span>Контекст запроса</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2">
+            <input
+              list="database-options"
+              value={databaseDraft}
+              onChange={(event) => setDatabaseDraft(event.target.value)}
+              placeholder="Выберите базу"
+              className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500"
+              id="database-combobox"
+            />
+            <datalist id="database-options">
+              {schema?.databases?.map((database) => (
+                <option key={database} value={database} />
+              ))}
+            </datalist>
+            <button
+              type="button"
+              onClick={() => databaseDraft.trim() && handleDatabaseChoice(databaseDraft.trim())}
+              disabled={!databaseDraft.trim()}
+              className="px-3 py-2 rounded-lg bg-white border border-slate-200 text-slate-700 font-semibold hover:bg-slate-50 disabled:opacity-50"
+              id="database-apply-btn"
+            >
+              Зафиксировать
+            </button>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-500">
+            <span className="px-2 py-1 rounded-md bg-white border border-slate-200">База: {session.selectedDatabase || "не выбрана"}</span>
+            <span className="px-2 py-1 rounded-md bg-white border border-slate-200">Схема: {schema?.tables?.length || 0} таблиц</span>
+            <span className="px-2 py-1 rounded-md bg-white border border-slate-200">Model: {aiConfig.provider}</span>
+          </div>
+        </div>
+
+        <label className="rounded-xl border border-slate-200 bg-slate-50/60 p-3 flex items-center gap-3 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={analyticsEnabled}
+            onChange={(event) => onAnalyticsToggle(event.target.checked)}
+            className="rounded border-slate-300 text-violet-600 focus:ring-violet-500/20"
+            id="analytics-toggle"
+          />
+          <BarChart3 size={16} className="text-slate-500" />
+          <span className="font-semibold text-slate-700">AI-аналитика</span>
+          <span className="text-slate-400">{analyticsEnabled ? "вкл" : "выкл"}</span>
+        </label>
       </div>
 
       {messages.length > 0 && (
@@ -195,31 +236,37 @@ export default function AiQueryInterface({
           {messages.map((message) => (
             <div
               key={message.id}
-              className={`rounded-xl border p-3 text-xs ${
-                message.role === "user"
-                  ? "bg-slate-50 border-slate-100 text-slate-700"
-                  : "bg-violet-50/60 border-violet-100 text-slate-700"
-              }`}
+              className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
             >
-              <div className="font-semibold mb-1 text-slate-500">{message.role === "user" ? "You" : "Assistant"}</div>
-              <div className="leading-normal whitespace-pre-wrap">{message.content}</div>
-              {message.options && message.options.length > 0 && (
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {message.options.map((database) => (
-                    <button
-                      key={database}
-                      type="button"
-                      onClick={() => handleDatabaseChoice(database)}
-                      className="px-3 py-1.5 rounded-lg bg-white border border-violet-200 text-violet-700 font-semibold hover:bg-violet-50 transition-colors"
-                    >
-                      {database}
-                    </button>
-                  ))}
+              <div
+                className={`rounded-xl border p-3 text-xs max-w-[88%] ${
+                  message.role === "user"
+                    ? "bg-violet-600 border-violet-600 text-white rounded-br-sm"
+                    : "bg-slate-50 border-slate-100 text-slate-700 rounded-bl-sm"
+                }`}
+              >
+                <div className={`font-semibold mb-1 ${message.role === "user" ? "text-violet-100" : "text-slate-500"}`}>
+                  {message.role === "user" ? "Вы" : "Модель"}
                 </div>
-              )}
-              {message.sql && (
-                <pre className="mt-3 p-3 rounded-lg bg-slate-950 text-emerald-400 overflow-x-auto text-[11px]">{message.sql}</pre>
-              )}
+                <div className="leading-normal whitespace-pre-wrap">{message.content}</div>
+                {message.options && message.options.length > 0 && (
+                  <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-44 overflow-y-auto pr-1">
+                    {message.options.map((database) => (
+                      <button
+                        key={database}
+                        type="button"
+                        onClick={() => handleDatabaseChoice(database)}
+                        className="px-3 py-1.5 rounded-lg bg-white border border-violet-200 text-violet-700 font-semibold hover:bg-violet-50 transition-colors"
+                      >
+                        {database}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {message.sql && (
+                  <pre className="mt-3 p-3 rounded-lg bg-slate-950 text-emerald-400 overflow-x-auto text-[11px]">{message.sql}</pre>
+                )}
+              </div>
             </div>
           ))}
         </div>
@@ -301,9 +348,17 @@ export default function AiQueryInterface({
               <Code size={14} className="text-violet-400" />
               Сгенерированный SQL-запрос ClickHouse
             </div>
-            <span className="text-[10px] bg-violet-500/20 text-violet-300 px-2.5 py-0.5 rounded-full font-semibold border border-violet-500/10">
-              Свободно редактируемый
-            </span>
+            <div className="flex flex-wrap justify-end gap-2">
+              <span className="text-[10px] bg-emerald-500/15 text-emerald-300 px-2.5 py-0.5 rounded-full font-semibold border border-emerald-500/10">
+                схема проверена
+              </span>
+              <span className="text-[10px] bg-violet-500/20 text-violet-300 px-2.5 py-0.5 rounded-full font-semibold border border-violet-500/10">
+                {session.selectedDatabase || "база не выбрана"}
+              </span>
+              <span className="text-[10px] bg-slate-700 text-slate-300 px-2.5 py-0.5 rounded-full font-semibold border border-slate-600">
+                только чтение
+              </span>
+            </div>
           </div>
 
           <div className="p-4">

@@ -121,9 +121,11 @@ async function main() {
             }
             throw new Error("Element not found: " + selector);
           };
-          const setInput = (selector, value) => {
+          const setValue = (selector, value) => {
             const el = document.querySelector(selector);
-            const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+            if (!el) throw new Error("Element not found: " + selector);
+            const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+            const setter = Object.getOwnPropertyDescriptor(proto, "value").set;
             setter.call(el, value);
             el.dispatchEvent(new Event("input", { bubbles: true }));
             el.dispatchEvent(new Event("change", { bubbles: true }));
@@ -135,32 +137,64 @@ async function main() {
           };
           await waitFor("#login-container");
           clickByText("Администратор");
-          setInput("#login-container input[type=password]", "admin");
+          setValue("#login-container input[type=password]", "admin");
           clickByText("Войти");
           await Promise.race([
-            waitFor("#clickhouse-connector", 10000),
+            waitFor("#ai-query-interface", 10000),
             (async () => {
               await waitFor("#login-error", 10000);
               throw new Error(document.querySelector("#login-error").innerText);
             })()
           ]);
-          await sleep(300);
-          const demoToggle = document.querySelector("#demo-mode-toggle");
-          if (demoToggle && demoToggle.textContent.includes("Демо-режим активен")) {
-            demoToggle.click();
-            await sleep(300);
+
+          await waitFor("#db-schema-browser");
+          await waitFor("#settings-toggle");
+          if (document.querySelector("#clickhouse-connector")) {
+            throw new Error("Connection settings should be collapsed by default");
           }
-          setInput("#host-input", "ones-journals.corp.grandtrade.world");
-          setInput("#port-input", "8123");
-          setInput("#user-input", "codex_probe_user");
-          setInput("#password-input", "codex_probe_password");
-          setInput("#database-input", "default");
-          const ssl = document.querySelector("#ssl-checkbox");
-          if (!ssl.checked) ssl.click();
-          document.querySelector("#test-connection-btn").click();
-          await waitFor("#connection-status", 20000);
+
+          const analyticsToggle = await waitFor("#analytics-toggle");
+          if (analyticsToggle.checked) throw new Error("Analytics should be disabled by default");
+          if (document.querySelector("#analytics-dashboard")) throw new Error("Analytics dashboard should be hidden while analytics is off");
+          analyticsToggle.click();
+          await sleep(150);
+          if (localStorage.getItem("analytics_enabled") !== "true") throw new Error("Analytics toggle did not persist enabled state");
+          analyticsToggle.click();
+          await sleep(150);
+          if (localStorage.getItem("analytics_enabled") !== "false") throw new Error("Analytics toggle did not persist disabled state");
+
+          document.querySelector("#settings-toggle").click();
+          await waitFor("#ai-config-panel");
+          setValue("#global-system-prompt-input", "Smoke test system prompt");
           await sleep(300);
-          return document.querySelector("#connection-status").innerText;
+          const aiConfig = JSON.parse(localStorage.getItem("ai_config") || "{}");
+          if (aiConfig.systemPrompt !== "Smoke test system prompt") {
+            throw new Error("Global system prompt was not saved to ai_config");
+          }
+
+          setValue("#database-combobox", "default");
+          document.querySelector("#database-apply-btn").click();
+          await waitFor("#ai-dialog-messages");
+          await sleep(150);
+          const bubbles = [...document.querySelectorAll("#ai-dialog-messages > div")].map((node) => {
+            const rect = node.querySelector("div").getBoundingClientRect();
+            return { text: node.innerText, left: rect.left, right: rect.right };
+          });
+          const userBubble = bubbles.find((bubble) => bubble.text.includes("Использовать базу default"));
+          const assistantBubble = bubbles.find((bubble) => bubble.text.includes("Контекст базы зафиксирован"));
+          if (!userBubble || !assistantBubble) throw new Error("Database dialog messages were not rendered");
+          if (userBubble.left <= assistantBubble.left) {
+            throw new Error("User message should be aligned to the right of assistant message");
+          }
+
+          return {
+            title: document.title,
+            settingsCollapsedInitially: true,
+            analyticsDefault: "off",
+            systemPrompt: aiConfig.systemPrompt,
+            userMessageLeft: Math.round(userBubble.left),
+            assistantMessageLeft: Math.round(assistantBubble.left)
+          };
         })(),
         new Promise((_, reject) => setTimeout(() => reject(new Error("UI scenario timeout")), 30000))
         ])
@@ -170,15 +204,7 @@ async function main() {
     if (result.exceptionDetails) {
       throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text);
     }
-    const text = result.result.value;
-    console.log(text);
-
-    if (text.includes("fetch failed") || text.includes(":8123")) {
-      throw new Error(`UI test still uses a broken endpoint: ${text}`);
-    }
-    if (!text.includes("codex_probe_user") || !text.includes("/data")) {
-      throw new Error(`UI test did not prove normalized ClickHouse routing: ${text}`);
-    }
+    console.log(JSON.stringify(result.result.value));
 
     ws.close();
   } finally {

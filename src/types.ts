@@ -84,6 +84,7 @@ export interface AiConfig {
   yandexApiKey: string;
   yandexFolderId: string;
   yandexModel: string;
+  systemPrompt?: string;
 }
 
 export type UserRole = "admin" | "user";

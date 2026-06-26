@@ -25,7 +25,8 @@ const DEFAULT_AI_CONFIG: AiConfig = {
   geminiModel: "gemini-3.5-flash",
   yandexApiKey: "",
   yandexFolderId: "",
-  yandexModel: "yandexgpt/latest"
+  yandexModel: "yandexgpt/latest",
+  systemPrompt: ""
 };
 
 const SESSION_COOKIE = "onec_ai_session";
@@ -107,8 +108,14 @@ export default function App() {
 
   const [queryResult, setQueryResult] = useState<QueryResult | null>(null);
   const [queryAnalysis, setQueryAnalysis] = useState<QueryAnalysis | null>(null);
+  const [currentQuestion, setCurrentQuestion] = useState("");
   const [runningQuery, setRunningQuery] = useState(false);
   const [generatingAnalysis, setGeneratingAnalysis] = useState(false);
+  const [analyticsEnabled, setAnalyticsEnabled] = useState<boolean>(() => {
+    const saved = localStorage.getItem("analytics_enabled");
+    return saved === "true";
+  });
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const [history, setHistory] = useState<QueryHistoryItem[]>(() => {
     return readStoredJson("query_history", []);
@@ -156,6 +163,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("query_history", JSON.stringify(history));
   }, [history]);
+
+  useEffect(() => {
+    localStorage.setItem("analytics_enabled", String(analyticsEnabled));
+  }, [analyticsEnabled]);
 
   useEffect(() => {
     writeCookie(SESSION_COOKIE, JSON.stringify(aiSession));
@@ -232,6 +243,7 @@ export default function App() {
     setRunningQuery(true);
     setQueryResult(null);
     setQueryAnalysis(null);
+    setCurrentQuestion(question);
     setGeneratingAnalysis(false);
 
     try {
@@ -255,7 +267,7 @@ export default function App() {
       setQueryResult(result);
       setRunningQuery(false);
 
-      if (result.success && result.rows && result.rows.length > 0) {
+      if (result.success && result.rows && result.rows.length > 0 && analyticsEnabled) {
         setGeneratingAnalysis(true);
         // Call Gemini to generate insights and layout recommendations
         const analysisResponse = await fetch("/api/gemini/explain-results", {
@@ -274,20 +286,26 @@ export default function App() {
         });
 
         const analysisData = await readJsonResponse(analysisResponse);
-        if (analysisData.success) {
-          setQueryAnalysis(analysisData.analysis);
-
-          // Add to history
-          const historyItem: QueryHistoryItem = {
-            id: String(Date.now()),
-            timestamp: new Date().toLocaleTimeString(),
-            question,
-            sql: result.sql || sql,
-            result,
-            analysis: analysisData.analysis
-          };
-          setHistory((prev) => [historyItem, ...prev].slice(0, 30)); // Keep last 30 items
-        }
+        const analysis = analysisData.success ? analysisData.analysis : undefined;
+        if (analysis) setQueryAnalysis(analysis);
+        const historyItem: QueryHistoryItem = {
+          id: String(Date.now()),
+          timestamp: new Date().toLocaleTimeString(),
+          question,
+          sql: result.sql || sql,
+          result,
+          analysis
+        };
+        setHistory((prev) => [historyItem, ...prev].slice(0, 30)); // Keep last 30 items
+      } else if (result.success) {
+        const historyItem: QueryHistoryItem = {
+          id: String(Date.now()),
+          timestamp: new Date().toLocaleTimeString(),
+          question,
+          sql: result.sql || sql,
+          result
+        };
+        setHistory((prev) => [historyItem, ...prev].slice(0, 30));
       }
     } catch (err: any) {
       setQueryResult({
@@ -546,22 +564,40 @@ export default function App() {
       <main className="max-w-7xl mx-auto px-6 mt-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
         {/* Left column: Setup & Catalog browser */}
         <section className="lg:col-span-4 space-y-8">
-          <ClickHouseConnector
-            onConfigChange={handleConfigChange}
-            onConnectionVerified={handleConnectionVerified}
-            activeConfig={config}
-            isDemoMode={isDemoMode}
-            role={userRole}
-          />
+          <button
+            type="button"
+            onClick={() => setSettingsOpen((open) => !open)}
+            className="w-full bg-white rounded-xl border border-slate-200 shadow-sm px-5 py-4 flex items-center justify-between text-left hover:bg-slate-50 transition-colors"
+            id="settings-toggle"
+          >
+            <div>
+              <div className="text-sm font-semibold text-slate-800">Подключение и настройки AI</div>
+              <div className="text-xs text-slate-500 mt-0.5">
+                {isDemoMode ? "Демо-режим" : `ClickHouse / ${config.database || "база не выбрана"} / ${aiConfig.provider}`}
+              </div>
+            </div>
+            <ChevronRight size={16} className={`text-slate-400 transition-transform ${settingsOpen ? "rotate-90" : ""}`} />
+          </button>
 
-          <AiConfigPanel
-            config={aiConfig}
-            onConfigChange={setAiConfig}
-            role={userRole}
-          />
+          {settingsOpen && (
+            <>
+              <ClickHouseConnector
+                onConfigChange={handleConfigChange}
+                onConnectionVerified={handleConnectionVerified}
+                activeConfig={config}
+                isDemoMode={isDemoMode}
+                role={userRole}
+              />
 
-          {/* Admin Password Manager */}
-          <AdminPasswordManager role={userRole} />
+              <AiConfigPanel
+                config={aiConfig}
+                onConfigChange={setAiConfig}
+                role={userRole}
+              />
+
+              <AdminPasswordManager role={userRole} />
+            </>
+          )}
           
           <DbSchemaBrowser
             schema={dbSchema}
@@ -580,19 +616,24 @@ export default function App() {
             aiConfig={aiConfig}
             session={aiSession}
             onSessionChange={handleAiSessionChange}
+            analyticsEnabled={analyticsEnabled}
+            onAnalyticsToggle={setAnalyticsEnabled}
           />
 
           {/* AI Analytics & visualizations */}
-          <AnalyticsDashboard
-            result={queryResult}
-            analysis={queryAnalysis}
-            loading={generatingAnalysis}
-          />
+          {analyticsEnabled && (
+            <AnalyticsDashboard
+              result={queryResult}
+              analysis={queryAnalysis}
+              loading={generatingAnalysis}
+            />
+          )}
 
           {/* Grid table view */}
           <QueryResultViewer
             result={queryResult}
             loading={runningQuery}
+            question={currentQuestion}
           />
 
           {/* Local history bento */}
