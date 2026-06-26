@@ -1,0 +1,6 @@
+{
+  "name": "1C ClickHouse AI Assistant",
+  "description": "An AI-powered assistant for analyzing 1C:Enterprise event logs stored in ClickHouse using natural language queries.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
