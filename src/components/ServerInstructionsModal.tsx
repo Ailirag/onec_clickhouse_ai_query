@@ -76,6 +76,7 @@ ORDER BY DateTime;`
             onClick={onClose}
             className="text-slate-400 hover:text-slate-600 p-1.5 hover:bg-slate-100 rounded-lg transition-colors"
             id="close-instructions-modal-btn"
+            aria-label="Закрыть"
           >
             <X size={18} />
           </button>

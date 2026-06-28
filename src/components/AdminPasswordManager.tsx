@@ -115,7 +115,7 @@ export default function AdminPasswordManager({ role }: AdminPasswordManagerProps
               setNewPassword(e.target.value);
               setStatus(null);
             }}
-            placeholder="Введите не менее 3 символов..."
+            placeholder="Введите не менее 3 символов…"
             className="w-full px-3.5 py-2 rounded-lg border border-slate-200 bg-slate-50/50 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all placeholder:text-slate-400"
             required
             minLength={3}
@@ -150,7 +150,7 @@ export default function AdminPasswordManager({ role }: AdminPasswordManagerProps
           {loading ? (
             <>
               <RefreshCw size={13} className="animate-spin" />
-              <span>Сохранение...</span>
+              <span>Сохранение…</span>
             </>
           ) : (
             <span>Сохранить новый пароль</span>

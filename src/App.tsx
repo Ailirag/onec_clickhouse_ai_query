@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { ClickHouseConfig, DbSchema, QueryResult, QueryAnalysis, QueryHistoryItem, AiConfig, UserRole, AiSessionState } from "./types";
 import ClickHouseConnector from "./components/ClickHouseConnector";
 import DbSchemaBrowser from "./components/DbSchemaBrowser";
@@ -116,6 +116,7 @@ export default function App() {
     return saved === "true";
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const [history, setHistory] = useState<QueryHistoryItem[]>(() => {
     return readStoredJson("query_history", []);
@@ -152,9 +153,12 @@ export default function App() {
     }
   }, []);
 
-  // Save config/demo adjustments to localStorage
+  // Save config/demo adjustments to localStorage.
+  // The ClickHouse password is intentionally NOT persisted — it stays in memory
+  // for the session only and is re-entered by the admin after a reload.
   useEffect(() => {
-    localStorage.setItem("clickhouse_config", JSON.stringify(config));
+    const { password, ...configWithoutPassword } = config;
+    localStorage.setItem("clickhouse_config", JSON.stringify(configWithoutPassword));
     localStorage.setItem("is_demo_mode", String(isDemoMode));
     localStorage.setItem("ai_config", JSON.stringify(aiConfig));
   }, [config, isDemoMode, aiConfig]);
@@ -238,8 +242,25 @@ export default function App() {
     }
   };
 
+  const runAbortRef = useRef<AbortController | null>(null);
+  const resultsAnchorRef = useRef<HTMLDivElement | null>(null);
+
+  // Bring the results into view once a query starts/finishes, so the user
+  // doesn't have to scroll past the (now compact) query panel manually.
+  useEffect(() => {
+    if (queryResult || runningQuery) {
+      resultsAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [queryResult, runningQuery]);
+
+  const handleCancelQuery = () => {
+    runAbortRef.current?.abort();
+  };
+
   const handleRunQuery = async (sql: string, question: string) => {
     const token = localStorage.getItem("auth_token") || authToken;
+    const controller = new AbortController();
+    runAbortRef.current = controller;
     setRunningQuery(true);
     setQueryResult(null);
     setQueryAnalysis(null);
@@ -249,7 +270,7 @@ export default function App() {
     try {
       const response = await fetch("/api/clickhouse/query", {
         method: "POST",
-        headers: { 
+        headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
         },
@@ -260,7 +281,8 @@ export default function App() {
           question,
           schema: dbSchema,
           aiConfig
-        })
+        }),
+        signal: controller.signal
       });
 
       const result: QueryResult = await readJsonResponse(response);
@@ -269,10 +291,10 @@ export default function App() {
 
       if (result.success && result.rows && result.rows.length > 0 && analyticsEnabled) {
         setGeneratingAnalysis(true);
-        // Call Gemini to generate insights and layout recommendations
+        // Call the AI provider to generate insights and layout recommendations
         const analysisResponse = await fetch("/api/gemini/explain-results", {
           method: "POST",
-          headers: { 
+          headers: {
             "Content-Type": "application/json",
             "Authorization": `Bearer ${token}`
           },
@@ -282,7 +304,8 @@ export default function App() {
             resultRows: result.rows,
             columns: result.columns,
             aiConfig
-          })
+          }),
+          signal: controller.signal
         });
 
         const analysisData = await readJsonResponse(analysisResponse);
@@ -308,13 +331,23 @@ export default function App() {
         setHistory((prev) => [historyItem, ...prev].slice(0, 30));
       }
     } catch (err: any) {
-      setQueryResult({
-        success: false,
-        sql,
-        error: `Системная ошибка: ${err.message || err}`,
-        elapsedMs: 0
-      });
+      if (err?.name === "AbortError") {
+        setQueryResult({
+          success: false,
+          sql,
+          error: "Запрос отменён пользователем.",
+          elapsedMs: 0
+        });
+      } else {
+        setQueryResult({
+          success: false,
+          sql,
+          error: `Системная ошибка: ${err.message || err}`,
+          elapsedMs: 0
+        });
+      }
     } finally {
+      runAbortRef.current = null;
       setRunningQuery(false);
       setGeneratingAnalysis(false);
     }
@@ -527,6 +560,7 @@ export default function App() {
                 onClick={handleLogout}
                 className="flex items-center gap-1 px-2.5 py-1.5 hover:bg-rose-50 text-slate-500 hover:text-rose-600 rounded-xl text-xs font-semibold border border-transparent hover:border-rose-200 transition-all cursor-pointer"
                 title="Выйти из аккаунта"
+                aria-label="Выйти из аккаунта"
                 id="logout-btn"
               >
                 <LogOut size={13} />
@@ -560,41 +594,46 @@ export default function App() {
       <main className="max-w-7xl mx-auto px-6 mt-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
         {/* Left column: Setup & Catalog browser */}
         <section className="lg:col-span-4 space-y-8">
-          <button
-            type="button"
-            onClick={() => setSettingsOpen((open) => !open)}
-            className="w-full surface-card rounded-2xl px-5 py-4 flex items-center justify-between text-left hover:bg-white transition-colors"
-            id="settings-toggle"
-          >
-            <div>
-              <div className="text-sm font-semibold text-slate-800">Подключение и настройки AI</div>
-              <div className="text-xs text-slate-500 mt-0.5">
-                {isDemoMode ? "Демо-режим" : `ClickHouse / ${config.database || "база не выбрана"} / ${aiConfig.provider}`}
-              </div>
-            </div>
-            <ChevronRight size={16} className={`text-slate-400 transition-transform ${settingsOpen ? "rotate-90" : ""}`} />
-          </button>
-
-          {settingsOpen && (
+          {/* Settings are admin-only — completely hidden for the user role */}
+          {userRole === "admin" && (
             <>
-              <ClickHouseConnector
-                onConfigChange={handleConfigChange}
-                onConnectionVerified={handleConnectionVerified}
-                activeConfig={config}
-                isDemoMode={isDemoMode}
-                role={userRole}
-              />
+              <button
+                type="button"
+                onClick={() => setSettingsOpen((open) => !open)}
+                className="w-full surface-card rounded-2xl px-5 py-4 flex items-center justify-between text-left hover:bg-white transition-colors"
+                id="settings-toggle"
+              >
+                <div>
+                  <div className="text-sm font-semibold text-slate-800">Подключение и настройки AI</div>
+                  <div className="text-xs text-slate-500 mt-0.5">
+                    {isDemoMode ? "Демо-режим" : `ClickHouse / ${config.database || "база не выбрана"} / ${aiConfig.provider}`}
+                  </div>
+                </div>
+                <ChevronRight size={16} className={`text-slate-400 transition-transform ${settingsOpen ? "rotate-90" : ""}`} />
+              </button>
 
-              <AiConfigPanel
-                config={aiConfig}
-                onConfigChange={setAiConfig}
-                role={userRole}
-              />
+              {settingsOpen && (
+                <>
+                  <ClickHouseConnector
+                    onConfigChange={handleConfigChange}
+                    onConnectionVerified={handleConnectionVerified}
+                    activeConfig={config}
+                    isDemoMode={isDemoMode}
+                    role={userRole}
+                  />
 
-              <AdminPasswordManager role={userRole} />
+                  <AiConfigPanel
+                    config={aiConfig}
+                    onConfigChange={setAiConfig}
+                    role={userRole}
+                  />
+
+                  <AdminPasswordManager role={userRole} />
+                </>
+              )}
             </>
           )}
-          
+
           <DbSchemaBrowser
             schema={dbSchema}
             loading={loadingSchema}
@@ -608,6 +647,7 @@ export default function App() {
           <AiQueryInterface
             schema={dbSchema}
             onRunQuery={handleRunQuery}
+            onCancelQuery={handleCancelQuery}
             loading={runningQuery || generatingAnalysis}
             aiConfig={aiConfig}
             session={aiSession}
@@ -615,6 +655,9 @@ export default function App() {
             analyticsEnabled={analyticsEnabled}
             onAnalyticsToggle={setAnalyticsEnabled}
           />
+
+          {/* Scroll anchor — results come into view here after a query */}
+          <div ref={resultsAnchorRef} className="scroll-mt-24" />
 
           {/* AI Analytics & visualizations */}
           {analyticsEnabled && (
@@ -630,31 +673,46 @@ export default function App() {
             result={queryResult}
             loading={runningQuery}
             question={currentQuestion}
+            isDemo={isDemoMode}
           />
 
-          {/* Local history bento */}
+          {/* Local history bento (collapsible) */}
           {history.length > 0 && (
             <div className="surface-card rounded-2xl p-6" id="history-panel">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2.5">
+              <div className="flex items-center justify-between mb-1">
+                <button
+                  type="button"
+                  onClick={() => setHistoryOpen((open) => !open)}
+                  className="flex items-center gap-2.5 text-left focus:outline-none focus:ring-2 focus:ring-brand-500/20 rounded-lg"
+                  id="history-toggle"
+                  aria-expanded={historyOpen}
+                >
                   <History size={18} className="text-slate-500" />
                   <h3 className="font-semibold text-sm text-slate-800 tracking-tight">История аналитических запросов</h3>
-                </div>
-                <button
-                  onClick={handleClearHistory}
-                  className="text-xs font-medium text-slate-400 hover:text-rose-600 transition-colors"
-                  id="clear-history-btn"
-                >
-                  Очистить историю
+                  <span className="text-[10px] font-semibold text-brand-700 bg-brand-50 border border-brand-100 rounded-full px-2 py-0.5">
+                    {history.length}
+                  </span>
+                  <ChevronRight size={15} className={`text-slate-400 transition-transform ${historyOpen ? "rotate-90" : ""}`} />
                 </button>
+                {historyOpen && (
+                  <button
+                    onClick={handleClearHistory}
+                    className="text-xs font-medium text-slate-400 hover:text-rose-600 transition-colors"
+                    id="clear-history-btn"
+                  >
+                    Очистить историю
+                  </button>
+                )}
               </div>
 
-              <div className="space-y-2 max-h-[280px] overflow-y-auto pr-2" id="history-list">
+              {historyOpen && (
+              <div className="space-y-2 max-h-[280px] overflow-y-auto pr-2 mt-4" id="history-list">
                 {history.map((item) => (
-                  <div
+                  <button
+                    type="button"
                     key={item.id}
                     onClick={() => handleApplyHistory(item)}
-                    className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 border border-slate-100 rounded-xl hover:border-brand-200 hover:bg-brand-50/40 cursor-pointer group transition-all"
+                    className="w-full text-left flex flex-col sm:flex-row sm:items-center justify-between p-3.5 border border-slate-100 rounded-xl hover:border-brand-200 hover:bg-brand-50/40 focus:outline-none focus:ring-2 focus:ring-brand-500/20 cursor-pointer group transition-all"
                   >
                     <div className="flex items-start gap-2.5">
                       <Clock size={13} className="text-slate-400 mt-1 shrink-0" />
@@ -674,9 +732,10 @@ export default function App() {
                     <span className="text-[10px] text-slate-400 font-medium sm:text-right shrink-0 mt-2 sm:mt-0 font-mono">
                       {item.timestamp}
                     </span>
-                  </div>
+                  </button>
                 ))}
               </div>
+              )}
             </div>
           )}
         </section>

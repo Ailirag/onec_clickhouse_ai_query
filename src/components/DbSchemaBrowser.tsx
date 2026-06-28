@@ -50,8 +50,17 @@ export default function DbSchemaBrowser({
     return (
       <div key={`${table.database || ""}.${table.name}`} className="border border-slate-100 rounded-lg bg-slate-50/20 overflow-hidden">
         <div
+          role="button"
+          tabIndex={0}
+          aria-expanded={isExpanded}
           onClick={() => toggleTable(table.name)}
-          className="flex items-center justify-between gap-3 p-3 cursor-pointer hover:bg-slate-50/80 transition-colors select-none"
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              toggleTable(table.name);
+            }
+          }}
+          className="flex items-center justify-between gap-3 p-3 cursor-pointer hover:bg-slate-50/80 focus:outline-none focus:ring-2 focus:ring-brand-500/20 rounded-lg transition-colors select-none"
         >
           <div className="flex items-center gap-2 min-w-0">
             {isExpanded ? (
@@ -135,7 +144,7 @@ export default function DbSchemaBrowser({
                             {col.name}
                           </th>
                         ))}
-                        {table.columns.length > 7 && <th className="p-2 font-semibold text-slate-500">...</th>}
+                        {table.columns.length > 7 && <th className="p-2 font-semibold text-slate-500">…</th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -149,7 +158,7 @@ export default function DbSchemaBrowser({
                               </td>
                             );
                           })}
-                          {table.columns.length > 7 && <td className="p-2 text-slate-400 text-xs">...</td>}
+                          {table.columns.length > 7 && <td className="p-2 text-slate-400 text-xs">…</td>}
                         </tr>
                       ))}
                     </tbody>
@@ -186,7 +195,7 @@ export default function DbSchemaBrowser({
           className="px-3 py-1.5 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
           id="schema-refresh-btn"
         >
-          {loading ? "Загрузка..." : "Обновить"}
+          {loading ? "Загрузка…" : "Обновить"}
         </button>
       </div>
 
@@ -208,9 +217,11 @@ export default function DbSchemaBrowser({
       )}
 
       {loading && (
-        <div className="flex flex-col items-center justify-center py-10 text-slate-400 gap-3" id="schema-loading">
-          <div className="w-8 h-8 border-4 border-slate-200 border-t-brand-600 rounded-full animate-spin"></div>
-          <span className="text-xs font-medium">Загружаю схему...</span>
+        <div className="space-y-2" id="schema-loading">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="h-11 rounded-lg skeleton-shimmer" style={{ opacity: 1 - i * 0.15 }}></div>
+          ))}
+          <span className="block text-center text-xs font-medium text-slate-400 pt-1">Загружаю схему…</span>
         </div>
       )}
 

@@ -74,7 +74,7 @@ export default function AnalyticsDashboard({
   const truncateLabel = (value: any) => {
     const str = String(value);
     if (str.length > 15) {
-      return str.substring(0, 15) + "...";
+      return str.substring(0, 15) + "…";
     }
     return str;
   };

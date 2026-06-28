@@ -261,7 +261,7 @@ export default function ClickHouseConnector({
             }`}
             id="test-connection-btn"
           >
-            {testing ? "Проверка..." : "Проверить подключение"}
+            {testing ? "Проверка…" : "Проверить подключение"}
           </button>
         </div>
       </form>

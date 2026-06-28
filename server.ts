@@ -680,7 +680,7 @@ app.post("/api/clickhouse/schema", async (req, res) => {
     }
 
     // Single batched query for the columns of every discovered table.
-    const tableKey = (db: string, table: string) => `${db} ${table}`;
+    const tableKey = (db: string, table: string) => `${db}::${table}`;
     const tupleList = tableRefs
       .map((r: any) => `('${escapeClickHouseString(r.database)}','${escapeClickHouseString(r.name)}')`)
       .join(",");
@@ -822,7 +822,7 @@ ${JSON.stringify(MOCK_DATASET.slice(0, 100))}
 
       if (repair.sql && repair.sql.trim() !== query.trim()) {
         if (!isReadOnlySql(repair.sql)) {
-          throw new Error("AI suggested non-read-only SQL, auto-repair was rejected.");
+          throw new Error("Модель предложила не read-only SQL — автоисправление отклонено.");
         }
 
         const cappedRepair = applyRowLimit(repair.sql);
@@ -841,7 +841,7 @@ ${JSON.stringify(MOCK_DATASET.slice(0, 100))}
     } catch (repairErr: any) {
       return res.json({
         ...result,
-        error: `${result.error}\n\nSQL auto-repair failed: ${repairErr.message || repairErr}`
+        error: `${result.error}\n\nАвтоисправление SQL не удалось: ${repairErr.message || repairErr}`
       });
     }
   }
@@ -1052,7 +1052,7 @@ async function repairSqlWithAi({
 }) {
   const tableNames = (schema?.tables || []).map((table: any) => table.name).filter(Boolean);
   if (!tableNames.length) {
-    throw new Error("ClickHouse schema is empty. Refresh the table list before repairing SQL.");
+    throw new Error("Схема ClickHouse пуста. Обновите список таблиц перед автоисправлением SQL.");
   }
 
   const systemPrompt = withCustomSystemPrompt(
@@ -1112,7 +1112,7 @@ app.post("/api/gemini/generate-sql", async (req, res) => {
         success: true,
         action: "switch_database",
         database: requestedDatabase,
-        message: `Switched dialog context to database "${requestedDatabase}". Ask the question again or continue with this database.`,
+        message: `Контекст диалога переключён на базу «${requestedDatabase}». Задайте вопрос ещё раз или продолжайте работу с этой базой.`,
         session: { ...session, selectedDatabase: requestedDatabase }
       });
     }
@@ -1122,7 +1122,7 @@ app.post("/api/gemini/generate-sql", async (req, res) => {
       return res.json({
         success: true,
         action: "select_database",
-        message: "Choose a ClickHouse database for this dialog before generating SQL.",
+        message: "Выберите базу данных ClickHouse для этого диалога перед генерацией SQL.",
         options: availableDatabases,
         session
       });
@@ -1140,7 +1140,7 @@ app.post("/api/gemini/generate-sql", async (req, res) => {
     if (!tableNames.length) {
       return res.status(400).json({
         success: false,
-        error: "ClickHouse schema is empty. Check the connection and refresh the table list before generating SQL."
+        error: "Схема ClickHouse пуста. Проверьте подключение и обновите список таблиц перед генерацией SQL."
       });
     }
 

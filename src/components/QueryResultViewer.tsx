@@ -1,11 +1,13 @@
 import React, { useState, useMemo } from "react";
 import { QueryResult } from "../types";
-import { Search, ChevronLeft, ChevronRight, Copy, Check, Table2, Download, ClipboardCopy, AlertTriangle } from "lucide-react";
+import { Search, ChevronLeft, ChevronRight, Copy, Check, Table2, Download, ClipboardCopy, AlertTriangle, FlaskConical } from "lucide-react";
+import { toast } from "./Toast";
 
 interface QueryResultViewerProps {
   result: QueryResult | null;
   loading: boolean;
   question?: string;
+  isDemo?: boolean;
 }
 
 // Quote a value for CSV (RFC 4180): wrap in quotes and double internal quotes.
@@ -31,7 +33,7 @@ function summarizeError(error = "") {
   return "Запрос завершился с ошибкой.";
 }
 
-export default function QueryResultViewer({ result, loading, question }: QueryResultViewerProps) {
+export default function QueryResultViewer({ result, loading, question, isDemo }: QueryResultViewerProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(10);
@@ -41,6 +43,7 @@ export default function QueryResultViewer({ result, loading, question }: QueryRe
   const handleCopy = (text: string, rowIdx: number, colName: string) => {
     navigator.clipboard.writeText(text);
     setCopiedCell({ row: rowIdx, col: colName });
+    toast("Значение скопировано");
     setTimeout(() => setCopiedCell(null), 1500);
   };
 
@@ -57,6 +60,7 @@ export default function QueryResultViewer({ result, loading, question }: QueryRe
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+    toast(`Выгружено строк: ${filteredRows.length.toLocaleString()}`);
   };
 
   const handleCopyAll = () => {
@@ -71,6 +75,7 @@ export default function QueryResultViewer({ result, loading, question }: QueryRe
     ].join("\n");
     navigator.clipboard.writeText(tsv);
     setCopiedAll(true);
+    toast(`Скопировано строк: ${filteredRows.length.toLocaleString()}`);
     setTimeout(() => setCopiedAll(false), 1800);
   };
 
@@ -100,9 +105,20 @@ export default function QueryResultViewer({ result, loading, question }: QueryRe
 
   if (loading) {
     return (
-      <div id="query-result-viewer-loading" className="surface-card rounded-2xl p-8 shadow-sm flex flex-col items-center justify-center gap-3">
-        <div className="w-10 h-10 border-4 border-slate-100 border-t-emerald-600 rounded-full animate-spin"></div>
-        <span className="text-xs font-semibold text-slate-500">Запрос выполняется в ClickHouse...</span>
+      <div id="query-result-viewer-loading" className="surface-card rounded-2xl overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-lg skeleton-shimmer"></div>
+          <div className="flex-1 space-y-2">
+            <div className="h-3 w-48 rounded skeleton-shimmer"></div>
+            <div className="h-2.5 w-64 rounded skeleton-shimmer"></div>
+          </div>
+        </div>
+        <div className="p-4 space-y-2.5">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="h-7 rounded-lg skeleton-shimmer" style={{ opacity: 1 - i * 0.12 }}></div>
+          ))}
+        </div>
+        <div className="px-6 py-3 text-center text-xs font-medium text-slate-400">Запрос выполняется в ClickHouse…</div>
       </div>
     );
   }
@@ -179,6 +195,13 @@ export default function QueryResultViewer({ result, loading, question }: QueryRe
           </div>
         </div>
       </div>
+
+      {isDemo && (
+        <div className="px-6 py-2.5 bg-emerald-50 border-b border-emerald-100 text-[11px] text-emerald-800 flex items-center gap-2" id="demo-data-note">
+          <FlaskConical size={13} className="text-emerald-600 shrink-0" />
+          <span>Демонстрационные данные — это сгенерированный журнал 1С, а не реальная база. Для работы с продом отключите демо-режим в настройках.</span>
+        </div>
+      )}
 
       {result.limitApplied && result.rowCount != null && result.rowCount >= result.limitApplied && (
         <div className="px-6 py-2.5 bg-amber-50 border-b border-amber-100 text-[11px] text-amber-800 flex items-center gap-2" id="limit-applied-note">
@@ -302,10 +325,11 @@ export default function QueryResultViewer({ result, loading, question }: QueryRe
                   disabled={currentPage === 1}
                   className="p-1.5 rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 disabled:opacity-40 disabled:hover:bg-white"
                   id="pagination-prev"
+                  aria-label="Предыдущая страница"
                 >
                   <ChevronLeft size={14} />
                 </button>
-                
+
                 {Array.from({ length: totalPages }, (_, i) => i + 1)
                   .filter((page) => page === 1 || page === totalPages || Math.abs(page - currentPage) <= 1)
                   .map((page, index, arr) => {
@@ -314,7 +338,7 @@ export default function QueryResultViewer({ result, loading, question }: QueryRe
 
                     return (
                       <React.Fragment key={page}>
-                        {showEllipsis && <span className="px-1 text-slate-300">...</span>}
+                        {showEllipsis && <span className="px-1 text-slate-300">…</span>}
                         <button
                           onClick={() => setCurrentPage(page)}
                           className={`px-3 py-1.5 rounded-md text-xs font-semibold ${
@@ -323,6 +347,8 @@ export default function QueryResultViewer({ result, loading, question }: QueryRe
                               : "border border-slate-200 bg-white hover:bg-slate-50 text-slate-600"
                           }`}
                           id={`pagination-page-${page}`}
+                          aria-label={`Страница ${page}`}
+                          aria-current={currentPage === page ? "page" : undefined}
                         >
                           {page}
                         </button>
@@ -335,6 +361,7 @@ export default function QueryResultViewer({ result, loading, question }: QueryRe
                   disabled={currentPage === totalPages}
                   className="p-1.5 rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 disabled:opacity-40 disabled:hover:bg-white"
                   id="pagination-next"
+                  aria-label="Следующая страница"
                 >
                   <ChevronRight size={14} />
                 </button>
