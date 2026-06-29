@@ -1,14 +1,13 @@
 import React, { useState, useEffect, useRef } from "react";
 import { ClickHouseConfig, DbSchema, QueryResult, QueryAnalysis, QueryHistoryItem, AiConfig, UserRole, AiSessionState, TokenUsage } from "./types";
-import ClickHouseConnector from "./components/ClickHouseConnector";
 import DbSchemaBrowser from "./components/DbSchemaBrowser";
 import AiQueryInterface from "./components/AiQueryInterface";
 import QueryResultViewer from "./components/QueryResultViewer";
 import AnalyticsDashboard from "./components/AnalyticsDashboard";
-import AiConfigPanel from "./components/AiConfigPanel";
 import ServerInstructionsModal from "./components/ServerInstructionsModal";
-import UserManager from "./components/UserManager";
-import { Server, History, Clock, ChevronRight, CornerDownRight, User, Shield, LogOut, AlertCircle, Coins, HelpCircle } from "lucide-react";
+import SettingsDrawer from "./components/SettingsDrawer";
+import Drawer from "./components/Drawer";
+import { Server, History, Clock, ChevronRight, CornerDownRight, User, Shield, LogOut, AlertCircle, Coins, HelpCircle, Settings, Table } from "lucide-react";
 import { readJsonResponse } from "./api";
 
 const DEFAULT_CONFIG: ClickHouseConfig = {
@@ -118,6 +117,7 @@ export default function App() {
     return saved === "true";
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [schemaOpen, setSchemaOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
 
   const [history, setHistory] = useState<QueryHistoryItem[]>(() => {
@@ -588,6 +588,30 @@ export default function App() {
               {isDemoMode ? "Демо-база журналов" : "Подключен ClickHouse"}
             </div>
 
+            {/* Schema browser (slide-over) — available to all roles */}
+            <button
+              onClick={() => setSchemaOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-white/70 hover:bg-white text-slate-600 hover:text-slate-800 rounded-xl text-xs font-semibold border border-slate-200/80 transition-all cursor-pointer"
+              title="Схема ClickHouse"
+              id="schema-btn"
+            >
+              <Table size={14} className="text-slate-500" />
+              <span>Схема</span>
+            </button>
+
+            {/* Settings (slide-over) — admin only */}
+            {userRole === "admin" && (
+              <button
+                onClick={() => setSettingsOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-white/70 hover:bg-white text-slate-600 hover:text-slate-800 rounded-xl text-xs font-semibold border border-slate-200/80 transition-all cursor-pointer"
+                title="Настройки: подключение, AI, пользователи"
+                id="settings-btn"
+              >
+                <Settings size={14} className="text-slate-500" />
+                <span>Настройки</span>
+              </button>
+            )}
+
             {/* Instruction manual button */}
             <button
               onClick={() => setShowInstructionsModal(true)}
@@ -596,65 +620,16 @@ export default function App() {
               id="server-docs-btn"
             >
               <HelpCircle size={14} className="text-slate-500" />
-              <span>Инструкция по поднятию</span>
+              <span className="hidden lg:inline">Инструкция по поднятию</span>
+              <span className="lg:hidden">Инструкция</span>
             </button>
           </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-6 mt-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Left column: Setup & Catalog browser */}
-        <section className="lg:col-span-4 space-y-8">
-          {/* Settings are admin-only — completely hidden for the user role */}
-          {userRole === "admin" && (
-            <>
-              <button
-                type="button"
-                onClick={() => setSettingsOpen((open) => !open)}
-                className="w-full surface-card rounded-2xl px-5 py-4 flex items-center justify-between text-left hover:bg-white transition-colors"
-                id="settings-toggle"
-              >
-                <div>
-                  <div className="text-sm font-semibold text-slate-800">Подключение и настройки AI</div>
-                  <div className="text-xs text-slate-500 mt-0.5">
-                    {isDemoMode ? "Демо-режим" : `ClickHouse / ${config.database || "база не выбрана"} / ${aiConfig.provider}`}
-                  </div>
-                </div>
-                <ChevronRight size={16} className={`text-slate-400 transition-transform ${settingsOpen ? "rotate-90" : ""}`} />
-              </button>
-
-              {settingsOpen && (
-                <>
-                  <ClickHouseConnector
-                    onConfigChange={handleConfigChange}
-                    onConnectionVerified={handleConnectionVerified}
-                    activeConfig={config}
-                    isDemoMode={isDemoMode}
-                    role={userRole}
-                  />
-
-                  <AiConfigPanel
-                    config={aiConfig}
-                    onConfigChange={setAiConfig}
-                    role={userRole}
-                  />
-
-                  <UserManager role={userRole} />
-                </>
-              )}
-            </>
-          )}
-
-          <DbSchemaBrowser
-            schema={dbSchema}
-            loading={loadingSchema}
-            error={schemaError}
-            onRefresh={() => fetchSchema()}
-          />
-        </section>
-
-        {/* Right column: terminal & logs visualization */}
-        <section className="lg:col-span-8 space-y-8">
+      <main className="max-w-6xl mx-auto px-6 mt-8">
+        {/* Single-column workspace; settings & schema live in slide-over panels */}
+        <section className="space-y-8">
           <AiQueryInterface
             schema={dbSchema}
             onRunQuery={handleRunQuery}
@@ -752,6 +727,39 @@ export default function App() {
           )}
         </section>
       </main>
+
+      {/* Schema browser slide-over */}
+      <Drawer
+        open={schemaOpen}
+        onClose={() => setSchemaOpen(false)}
+        title="Схема ClickHouse"
+        subtitle="Таблицы и колонки выбранной базы"
+        icon={<Table size={20} />}
+        widthClass="max-w-2xl"
+        id="schema-drawer"
+      >
+        <DbSchemaBrowser
+          schema={dbSchema}
+          loading={loadingSchema}
+          error={schemaError}
+          onRefresh={() => fetchSchema()}
+        />
+      </Drawer>
+
+      {/* Settings slide-over (admin only) */}
+      {userRole === "admin" && (
+        <SettingsDrawer
+          open={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          role={userRole}
+          config={config}
+          isDemoMode={isDemoMode}
+          onConfigChange={handleConfigChange}
+          onConnectionVerified={handleConnectionVerified}
+          aiConfig={aiConfig}
+          onAiConfigChange={setAiConfig}
+        />
+      )}
 
       {/* Deployment & Setup Instructions Modal */}
       <ServerInstructionsModal

@@ -147,10 +147,12 @@ async function main() {
             })()
           ]);
 
-          await waitFor("#db-schema-browser");
-          await waitFor("#settings-toggle");
-          if (document.querySelector("#clickhouse-connector")) {
-            throw new Error("Connection settings should be collapsed by default");
+          await waitFor("#settings-btn");
+          if (document.querySelector("#settings-drawer")) {
+            throw new Error("Settings drawer should be closed by default");
+          }
+          if (document.querySelector("#db-schema-browser")) {
+            throw new Error("Schema drawer should be closed by default");
           }
 
           const analyticsToggle = await waitFor("#analytics-toggle");
@@ -163,7 +165,10 @@ async function main() {
           await sleep(150);
           if (localStorage.getItem("analytics_enabled") !== "false") throw new Error("Analytics toggle did not persist disabled state");
 
-          document.querySelector("#settings-toggle").click();
+          // Open settings drawer -> AI tab -> set the global system prompt
+          document.querySelector("#settings-btn").click();
+          await waitFor("#settings-drawer");
+          (await waitFor("#settings-tab-ai")).click();
           await waitFor("#ai-config-panel");
           setValue("#global-system-prompt-input", "Smoke test system prompt");
           await sleep(300);
@@ -171,6 +176,14 @@ async function main() {
           if (aiConfig.systemPrompt !== "Smoke test system prompt") {
             throw new Error("Global system prompt was not saved to ai_config");
           }
+          document.querySelector("#drawer-close-btn").click();
+          await sleep(200);
+
+          // Schema lives in its own slide-over
+          document.querySelector("#schema-btn").click();
+          await waitFor("#db-schema-browser");
+          document.querySelector("#drawer-close-btn").click();
+          await sleep(200);
 
           setValue("#database-combobox", "default");
           document.querySelector("#database-apply-btn").click();

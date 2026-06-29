@@ -278,6 +278,10 @@ export default function AiQueryInterface({
         </div>
       </div>
 
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+        {/* LEFT pane — context, dialog & question */}
+        <div className="min-w-0">
+
       <div className="mb-4 grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 text-xs">
         <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
           <div className="flex items-center gap-2 text-slate-500 font-semibold mb-2">
@@ -564,9 +568,13 @@ export default function AiQueryInterface({
         </div>
       )}
 
+        </div>{/* end LEFT pane */}
+
+        {/* RIGHT pane — SQL editor, always visible */}
+        <div className="min-w-0">
       {/* SQL Code Block and editor */}
-      {generatedSql && (
-        <div className="mt-6 border border-slate-200 rounded-xl bg-slate-900 overflow-hidden shadow-sm animate-fade-in" id="sql-container">
+      {generatedSql ? (
+        <div className="border border-slate-200 rounded-xl bg-slate-900 overflow-hidden shadow-sm animate-fade-in lg:sticky lg:top-24" id="sql-container">
           <div className="bg-slate-800/80 px-4 py-3 border-b border-slate-800 flex items-center justify-between">
             <div className="flex items-center gap-2 text-xs font-semibold text-slate-300">
               <Code size={14} className="text-brand-400" />
@@ -636,7 +644,17 @@ export default function AiQueryInterface({
             )}
           </div>
         </div>
+      ) : (
+        <div className="border border-dashed border-slate-200 rounded-xl bg-slate-50/60 p-8 text-center lg:sticky lg:top-24" id="sql-empty">
+          <Code size={26} className="text-slate-300 mx-auto mb-2" />
+          <p className="text-sm font-semibold text-slate-500">Здесь появится SQL-запрос</p>
+          <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
+            Задайте вопрос слева и нажмите «Создать SQL». Сгенерированный запрос можно отредактировать перед выполнением.
+          </p>
+        </div>
       )}
+        </div>{/* end RIGHT pane */}
+      </div>{/* end two-pane grid */}
     </div>
   );
 }

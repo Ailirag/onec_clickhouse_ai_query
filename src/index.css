@@ -27,6 +27,7 @@
   --animate-slide-up: slide-up 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
   --animate-shimmer: shimmer 1.6s linear infinite;
   --animate-attention: attention 1.5s ease-out 2;
+  --animate-slide-in-right: slide-in-right 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @keyframes fade-in {
@@ -68,6 +69,17 @@
   }
   100% {
     background-position: 200% 0;
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    opacity: 0.4;
+    transform: translateX(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
   }
 }
 
