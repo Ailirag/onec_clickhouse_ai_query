@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { ClickHouseConfig, DbSchema, QueryResult, QueryAnalysis, QueryHistoryItem, AiConfig, UserRole, AiSessionState } from "./types";
+import { ClickHouseConfig, DbSchema, QueryResult, QueryAnalysis, QueryHistoryItem, AiConfig, UserRole, AiSessionState, TokenUsage } from "./types";
 import ClickHouseConnector from "./components/ClickHouseConnector";
 import DbSchemaBrowser from "./components/DbSchemaBrowser";
 import AiQueryInterface from "./components/AiQueryInterface";
@@ -7,8 +7,8 @@ import QueryResultViewer from "./components/QueryResultViewer";
 import AnalyticsDashboard from "./components/AnalyticsDashboard";
 import AiConfigPanel from "./components/AiConfigPanel";
 import ServerInstructionsModal from "./components/ServerInstructionsModal";
-import AdminPasswordManager from "./components/AdminPasswordManager";
-import { Server, Sparkles, History, Clock, ChevronRight, CornerDownRight, Database, HelpCircle, User, Shield, Lock, Unlock, KeyRound, X, LogOut, AlertCircle } from "lucide-react";
+import UserManager from "./components/UserManager";
+import { Server, History, Clock, ChevronRight, CornerDownRight, User, Shield, LogOut, AlertCircle, Coins, HelpCircle } from "lucide-react";
 import { readJsonResponse } from "./api";
 
 const DEFAULT_CONFIG: ClickHouseConfig = {
@@ -91,11 +91,13 @@ export default function App() {
   });
 
   const [userRole, setUserRole] = useState<UserRole>("user");
+  const [username, setUsername] = useState<string>("");
+  const [usage, setUsage] = useState<TokenUsage | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [authToken, setAuthToken] = useState<string | null>(null);
 
   // Login form state
-  const [loginRole, setLoginRole] = useState<UserRole>("user");
+  const [loginUsernameInput, setLoginUsernameInput] = useState("");
   const [loginPasswordInput, setLoginPasswordInput] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState("");
@@ -140,6 +142,8 @@ export default function App() {
         if (data.success) {
           setAuthToken(token);
           setUserRole(data.role);
+          setUsername(data.username || localStorage.getItem("user_name") || "");
+          if (data.usage) setUsage(data.usage);
           setIsAuthenticated(true);
         } else {
           handleLogout();
@@ -285,7 +289,8 @@ export default function App() {
         signal: controller.signal
       });
 
-      const result: QueryResult = await readJsonResponse(response);
+      const result: QueryResult & { usage?: TokenUsage } = await readJsonResponse(response);
+      if (result.usage) setUsage(result.usage);
       setQueryResult(result);
       setRunningQuery(false);
 
@@ -309,6 +314,7 @@ export default function App() {
         });
 
         const analysisData = await readJsonResponse(analysisResponse);
+        if (analysisData.usage) setUsage(analysisData.usage);
         const analysis = analysisData.success ? analysisData.analysis : undefined;
         if (analysis) setQueryAnalysis(analysis);
         const historyItem: QueryHistoryItem = {
@@ -371,18 +377,21 @@ export default function App() {
       const response = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: loginRole, password: loginPasswordInput })
+        body: JSON.stringify({ username: loginUsernameInput.trim(), password: loginPasswordInput })
       });
       const data = await readJsonResponse(response);
       if (response.ok && data.success) {
         localStorage.setItem("auth_token", data.token);
         localStorage.setItem("user_role", data.role);
+        localStorage.setItem("user_name", data.username || loginUsernameInput.trim());
         setAuthToken(data.token);
         setUserRole(data.role);
+        setUsername(data.username || loginUsernameInput.trim());
+        setUsage(data.usage || null);
         setIsAuthenticated(true);
         setLoginPasswordInput("");
       } else {
-        setLoginError(data.error || "Неверный пароль.");
+        setLoginError(data.error || "Неверный логин или пароль.");
       }
     } catch (err: any) {
       setLoginError(`Ошибка соединения: ${err.message || err}`);
@@ -394,8 +403,11 @@ export default function App() {
   const handleLogout = () => {
     localStorage.removeItem("auth_token");
     localStorage.removeItem("user_role");
+    localStorage.removeItem("user_name");
     setAuthToken(null);
     setUserRole("user");
+    setUsername("");
+    setUsage(null);
     setIsAuthenticated(false);
     setQueryResult(null);
     setQueryAnalysis(null);
@@ -426,52 +438,28 @@ export default function App() {
           </div>
 
           <form onSubmit={handleLoginSubmit} className="space-y-5">
-            {/* Role selection tab */}
+            {/* Username input */}
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-2 uppercase tracking-wider">
-                Выберите роль
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5 uppercase tracking-wider">
+                Логин
               </label>
-              <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLoginRole("user");
+              <div className="relative">
+                <User size={15} className="absolute left-3.5 top-3 text-slate-400" />
+                <input
+                  type="text"
+                  value={loginUsernameInput}
+                  onChange={(e) => {
+                    setLoginUsernameInput(e.target.value);
                     setLoginError("");
                   }}
-                  className={`flex items-center justify-center gap-1.5 py-2 text-xs font-semibold rounded-lg transition-all ${
-                    loginRole === "user"
-                      ? "bg-white text-slate-800 shadow-sm border border-slate-200/50"
-                      : "text-slate-500 hover:text-slate-800"
-                  }`}
-                >
-                  <User size={14} />
-                  <span>Пользователь</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLoginRole("admin");
-                    setLoginError("");
-                  }}
-                  className={`flex items-center justify-center gap-1.5 py-2 text-xs font-semibold rounded-lg transition-all ${
-                    loginRole === "admin"
-                      ? "bg-brand-500 text-white shadow-sm shadow-brand-200/60"
-                      : "text-slate-500 hover:text-slate-800"
-                  }`}
-                >
-                  <Shield size={14} />
-                  <span>Администратор</span>
-                </button>
+                  className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/60 text-sm focus:bg-white focus:outline-none focus:ring-4 focus:ring-brand-500/15 focus:border-brand-400 transition-all placeholder:text-slate-400"
+                  placeholder="Введите логин…"
+                  id="login-username"
+                  required
+                  autoFocus
+                  autoComplete="username"
+                />
               </div>
-            </div>
-
-            {/* Role Info Box */}
-            <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-[11px] text-slate-500 leading-normal">
-              {loginRole === "admin" ? (
-                <span><strong>Роль Администратора:</strong> Полный доступ к настройкам соединения ClickHouse, выбору AI моделей (Gemini/YandexGPT) и управлению паролями.</span>
-              ) : (
-                <span><strong>Роль Пользователя:</strong> Доступ к ИИ-интерфейсу для выполнения SQL-запросов и аналитики. Настройки закрыты для редактирования.</span>
-              )}
             </div>
 
             {/* Password input */}
@@ -488,8 +476,9 @@ export default function App() {
                 }}
                 className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/60 text-sm focus:bg-white focus:outline-none focus:ring-4 focus:ring-brand-500/15 focus:border-brand-400 transition-all placeholder:text-slate-400"
                 placeholder="Введите пароль…"
+                id="login-password"
                 required
-                autoFocus
+                autoComplete="current-password"
               />
             </div>
 
@@ -544,6 +533,27 @@ export default function App() {
           </div>
 
           <div className="flex flex-col sm:flex-row items-center gap-3.5">
+            {/* Token usage indicator */}
+            {usage && (
+              <div
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold ${
+                  usage.dailyTokenLimit > 0 && usage.remaining === 0
+                    ? "bg-rose-50 text-rose-700 border-rose-200"
+                    : usage.dailyTokenLimit > 0 && usage.tokensUsedToday / usage.dailyTokenLimit >= 0.8
+                    ? "bg-amber-50 text-amber-700 border-amber-200"
+                    : "bg-white/70 text-slate-700 border-slate-200/80"
+                }`}
+                title="Расход токенов за сегодня"
+                id="token-usage-chip"
+              >
+                <Coins size={13} />
+                <span>
+                  {usage.tokensUsedToday.toLocaleString()}
+                  {usage.dailyTokenLimit > 0 ? ` / ${usage.dailyTokenLimit.toLocaleString()}` : " · без лимита"}
+                </span>
+              </div>
+            )}
+
             {/* Active Session info & Logout */}
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white/70 rounded-xl border border-slate-200/80 text-xs">
@@ -553,8 +563,9 @@ export default function App() {
                   <User size={13} className="text-slate-600" />
                 )}
                 <span className="font-semibold text-slate-700">
-                  {userRole === "admin" ? "Администратор" : "Пользователь"}
+                  {username || (userRole === "admin" ? "Администратор" : "Пользователь")}
                 </span>
+                <span className="text-[10px] text-slate-400 font-medium">· {userRole === "admin" ? "админ" : "польз."}</span>
               </div>
               <button
                 onClick={handleLogout}
@@ -628,7 +639,7 @@ export default function App() {
                     role={userRole}
                   />
 
-                  <AdminPasswordManager role={userRole} />
+                  <UserManager role={userRole} />
                 </>
               )}
             </>
@@ -648,6 +659,7 @@ export default function App() {
             schema={dbSchema}
             onRunQuery={handleRunQuery}
             onCancelQuery={handleCancelQuery}
+            onUsage={setUsage}
             loading={runningQuery || generatingAnalysis}
             aiConfig={aiConfig}
             session={aiSession}

@@ -89,3 +89,20 @@ export interface AiConfig {
 }
 
 export type UserRole = "admin" | "user";
+
+export interface TokenUsage {
+  tokensUsedToday: number;
+  dailyTokenLimit: number; // 0 = unlimited
+  remaining: number | null;
+  date: string;
+}
+
+export interface ManagedUser {
+  id: string;
+  username: string;
+  role: UserRole;
+  dailyTokenLimit: number;
+  tokensUsedToday: number;
+  usageDate: string;
+  createdAt: number;
+}

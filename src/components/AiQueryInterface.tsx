@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Sparkles, ChevronRight, ChevronDown, Play, AlertCircle, Code, Database, BarChart3, Star, X, Plus } from "lucide-react";
-import { DbSchema, AiConfig, AiSessionState, DialogMessage } from "../types";
+import { DbSchema, AiConfig, AiSessionState, DialogMessage, TokenUsage } from "../types";
 import { readJsonResponse } from "../api";
 import { toast } from "./Toast";
 
@@ -8,6 +8,7 @@ interface AiQueryInterfaceProps {
   schema: DbSchema | null;
   onRunQuery: (sql: string, question: string) => void;
   onCancelQuery?: () => void;
+  onUsage?: (usage: TokenUsage) => void;
   loading: boolean;
   aiConfig: AiConfig;
   session: AiSessionState;
@@ -46,6 +47,7 @@ export default function AiQueryInterface({
   schema,
   onRunQuery,
   onCancelQuery,
+  onUsage,
   loading,
   aiConfig,
   session,
@@ -204,6 +206,7 @@ export default function AiQueryInterface({
         signal: controller.signal
       });
       const data = await readJsonResponse(response);
+      if (data.usage) onUsage?.(data.usage);
       if (data.success) {
         if (data.session) {
           onSessionChange(data.session);

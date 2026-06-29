@@ -136,8 +136,8 @@ async function main() {
             el.click();
           };
           await waitFor("#login-container");
-          clickByText("Администратор");
-          setValue("#login-container input[type=password]", "admin");
+          setValue("#login-username", "admin");
+          setValue("#login-password", "admin");
           clickByText("Войти");
           await Promise.race([
             waitFor("#ai-query-interface", 10000),

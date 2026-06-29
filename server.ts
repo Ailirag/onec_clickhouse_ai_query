@@ -16,7 +16,7 @@ app.use(express.json({ limit: '10mb' }));
 
 // Local Session & Password Storage
 const PASSWORDS_FILE = path.join(process.cwd(), "passwords.json");
-const ACTIVE_SESSIONS = new Map<string, { role: string; expires: number }>();
+const ACTIVE_SESSIONS = new Map<string, { username: string; role: string; expires: number }>();
 const AUTH_ROLES = new Set(["admin", "user"]);
 const PASSWORD_HASH_PREFIX = "pbkdf2_sha256";
 
@@ -73,6 +73,156 @@ function savePasswords(passwords: PasswordStore) {
     console.error("Error writing passwords.json:", err);
   }
 }
+
+// --- User store: named accounts with per-user daily token limits ---
+const USERS_FILE = path.join(process.cwd(), "users.json");
+
+interface AppUser {
+  id: string;
+  username: string;
+  password: string; // pbkdf2 hash
+  role: "admin" | "user";
+  dailyTokenLimit: number; // 0 = unlimited
+  tokensUsedToday: number;
+  usageDate: string; // YYYY-MM-DD (server-local)
+  createdAt: number;
+}
+
+function todayStr() {
+  const d = new Date();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${month}-${day}`;
+}
+
+function newId() {
+  return crypto.randomUUID();
+}
+
+function sanitizeUserRecord(r: any): AppUser | null {
+  if (!r || typeof r.username !== "string" || typeof r.password !== "string") return null;
+  return {
+    id: typeof r.id === "string" ? r.id : newId(),
+    username: r.username,
+    password: r.password,
+    role: r.role === "admin" ? "admin" : "user",
+    dailyTokenLimit: Math.max(0, Number(r.dailyTokenLimit) || 0),
+    tokensUsedToday: Math.max(0, Number(r.tokensUsedToday) || 0),
+    usageDate: typeof r.usageDate === "string" ? r.usageDate : todayStr(),
+    createdAt: Number(r.createdAt) || Date.now()
+  };
+}
+
+function saveUsers(users: AppUser[]) {
+  try {
+    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), "utf-8");
+  } catch (err) {
+    console.error("Error writing users.json:", err);
+  }
+}
+
+function loadUsers(): AppUser[] {
+  try {
+    if (fs.existsSync(USERS_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(USERS_FILE, "utf-8"));
+      if (Array.isArray(parsed)) {
+        const users = parsed.map(sanitizeUserRecord).filter(Boolean) as AppUser[];
+        if (users.length) return users;
+      }
+    }
+  } catch (err) {
+    console.error("Error reading users.json, re-seeding:", err);
+  }
+
+  // First run: migrate the legacy admin/user credentials into the user store.
+  const passwords = getPasswords();
+  const now = Date.now();
+  const seeded: AppUser[] = [
+    { id: newId(), username: "admin", password: passwords.admin, role: "admin", dailyTokenLimit: 0, tokensUsedToday: 0, usageDate: todayStr(), createdAt: now },
+    { id: newId(), username: "user", password: passwords.user, role: "user", dailyTokenLimit: 0, tokensUsedToday: 0, usageDate: todayStr(), createdAt: now }
+  ];
+  saveUsers(seeded);
+  return seeded;
+}
+
+function findUser(users: AppUser[], username: string) {
+  const target = String(username || "").trim().toLowerCase();
+  return users.find((u) => u.username.toLowerCase() === target);
+}
+
+// Lazily reset the daily counter when the date rolls over. Returns true if mutated.
+function normalizeUsage(user: AppUser) {
+  const today = todayStr();
+  if (user.usageDate !== today) {
+    user.usageDate = today;
+    user.tokensUsedToday = 0;
+    return true;
+  }
+  return false;
+}
+
+function usageOf(user: AppUser) {
+  const limit = user.dailyTokenLimit || 0;
+  return {
+    tokensUsedToday: user.tokensUsedToday,
+    dailyTokenLimit: limit,
+    remaining: limit > 0 ? Math.max(0, limit - user.tokensUsedToday) : null,
+    date: user.usageDate
+  };
+}
+
+function isOverBudget(user: AppUser) {
+  return user.dailyTokenLimit > 0 && user.tokensUsedToday >= user.dailyTokenLimit;
+}
+
+function getUserUsage(username: string) {
+  const users = loadUsers();
+  const user = findUser(users, username);
+  if (!user) return null;
+  if (normalizeUsage(user)) saveUsers(users);
+  return usageOf(user);
+}
+
+function userIsOverBudget(username: string) {
+  const users = loadUsers();
+  const user = findUser(users, username);
+  if (!user) return false;
+  if (normalizeUsage(user)) saveUsers(users);
+  return isOverBudget(user);
+}
+
+function recordTokens(username: string, tokens: number) {
+  if (!tokens || tokens <= 0) return;
+  const users = loadUsers();
+  const user = findUser(users, username);
+  if (!user) return;
+  normalizeUsage(user);
+  user.tokensUsedToday += Math.round(tokens);
+  saveUsers(users);
+}
+
+function publicUser(user: AppUser) {
+  normalizeUsage(user);
+  return {
+    id: user.id,
+    username: user.username,
+    role: user.role,
+    dailyTokenLimit: user.dailyTokenLimit,
+    tokensUsedToday: user.tokensUsedToday,
+    usageDate: user.usageDate,
+    createdAt: user.createdAt
+  };
+}
+
+function requireAdmin(req: any, res: any) {
+  if (!req.user || req.user.role !== "admin") {
+    res.status(403).json({ success: false, error: "Доступ разрешён только администраторам" });
+    return false;
+  }
+  return true;
+}
+
+const TOKEN_LIMIT_MESSAGE = "Дневной лимит токенов исчерпан. Обратитесь к администратору или дождитесь сброса в полночь.";
 
 function escapeClickHouseString(value: string) {
   return String(value).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
@@ -246,62 +396,135 @@ app.use((req: any, res: any, next: any) => {
   next();
 });
 
-// Auth Routes
+// Auth Routes — login by username + password
 app.post("/api/auth/login", (req, res) => {
-  const { role, password } = req.body;
-  if (!role || !password) {
-    return res.status(400).json({ success: false, error: "Укажите роль и пароль" });
-  }
-  if (!AUTH_ROLES.has(role)) {
-    return res.status(400).json({ success: false, error: "Неверная роль" });
-  }
-  
-  const passwords = getPasswords();
-  if (verifyPassword(password, passwords[role as "admin" | "user"])) {
-    if (!passwords[role as "admin" | "user"].startsWith(`${PASSWORD_HASH_PREFIX}$`)) {
-      passwords[role as "admin" | "user"] = hashPassword(password);
-      savePasswords(passwords);
-    }
-    const token = `token_${role}_${crypto.randomBytes(32).toString("hex")}`;
-    ACTIVE_SESSIONS.set(token, { role, expires: Date.now() + 24 * 60 * 60 * 1000 });
-    return res.json({ success: true, token, role });
-  } else {
-    return res.status(401).json({ success: false, error: "Неверный пароль" });
-  }
-});
-
-app.post("/api/auth/change-password", (req: any, res: any) => {
-  if (!req.user || req.user.role !== "admin") {
-    return res.status(403).json({ success: false, error: "Доступ разрешен только администраторам" });
+  // Accept legacy { role } as the username for backward compatibility.
+  const username = String(req.body.username || req.body.role || "").trim();
+  const password = req.body.password;
+  if (!username || !password) {
+    return res.status(400).json({ success: false, error: "Укажите логин и пароль" });
   }
 
-  const { targetRole, newPassword } = req.body;
-  if (!targetRole || !newPassword) {
-    return res.status(400).json({ success: false, error: "Укажите роль для смены пароля и новый пароль" });
+  const users = loadUsers();
+  const user = findUser(users, username);
+  if (!user || !verifyPassword(password, user.password)) {
+    return res.status(401).json({ success: false, error: "Неверный логин или пароль" });
   }
-  if (targetRole !== "admin" && targetRole !== "user") {
-    return res.status(400).json({ success: false, error: "Неверная роль" });
+
+  // Upgrade any legacy plaintext hash on successful login.
+  if (!user.password.startsWith(`${PASSWORD_HASH_PREFIX}$`)) {
+    user.password = hashPassword(password);
   }
-  if (newPassword.length < 3) {
-    return res.status(400).json({ success: false, error: "Пароль должен быть не менее 3 символов" });
-  }
-  
-  const passwords = getPasswords();
-  passwords[targetRole as "admin" | "user"] = hashPassword(newPassword);
-  savePasswords(passwords);
-  
-  // Revoke active sessions for that role so they have to re-authenticate
-  for (const [token, session] of ACTIVE_SESSIONS.entries()) {
-    if (session.role === targetRole) {
-      ACTIVE_SESSIONS.delete(token);
-    }
-  }
-  
-  res.json({ success: true, message: `Пароль для роли "${targetRole}" успешно изменен!` });
+  normalizeUsage(user);
+  saveUsers(users);
+
+  const token = `token_${user.username}_${crypto.randomBytes(32).toString("hex")}`;
+  ACTIVE_SESSIONS.set(token, { username: user.username, role: user.role, expires: Date.now() + 24 * 60 * 60 * 1000 });
+  return res.json({ success: true, token, role: user.role, username: user.username, usage: usageOf(user) });
 });
 
 app.get("/api/auth/verify", (req: any, res: any) => {
-  res.json({ success: true, role: req.user.role });
+  res.json({ success: true, role: req.user.role, username: req.user.username, usage: getUserUsage(req.user.username) });
+});
+
+// Current user's token usage (for the header indicator)
+app.get("/api/usage", (req: any, res: any) => {
+  res.json({ success: true, usage: getUserUsage(req.user.username) });
+});
+
+// --- Admin: user management ---
+app.get("/api/users", (req: any, res: any) => {
+  if (!requireAdmin(req, res)) return;
+  const users = loadUsers();
+  let changed = false;
+  users.forEach((u) => { if (normalizeUsage(u)) changed = true; });
+  if (changed) saveUsers(users);
+  res.json({ success: true, users: users.map(publicUser) });
+});
+
+app.post("/api/users", (req: any, res: any) => {
+  if (!requireAdmin(req, res)) return;
+  const username = String(req.body.username || "").trim();
+  const password = String(req.body.password || "");
+  const role = req.body.role === "admin" ? "admin" : "user";
+  const dailyTokenLimit = Math.max(0, Number(req.body.dailyTokenLimit) || 0);
+  if (username.length < 2) return res.status(400).json({ success: false, error: "Логин не короче 2 символов" });
+  if (password.length < 3) return res.status(400).json({ success: false, error: "Пароль не короче 3 символов" });
+
+  const users = loadUsers();
+  if (findUser(users, username)) return res.status(409).json({ success: false, error: "Пользователь с таким логином уже существует" });
+
+  const user: AppUser = {
+    id: newId(),
+    username,
+    password: hashPassword(password),
+    role,
+    dailyTokenLimit,
+    tokensUsedToday: 0,
+    usageDate: todayStr(),
+    createdAt: Date.now()
+  };
+  users.push(user);
+  saveUsers(users);
+  res.json({ success: true, user: publicUser(user) });
+});
+
+app.post("/api/users/update", (req: any, res: any) => {
+  if (!requireAdmin(req, res)) return;
+  const { id, role, dailyTokenLimit, newPassword } = req.body;
+  const users = loadUsers();
+  const user = users.find((u) => u.id === id);
+  if (!user) return res.status(404).json({ success: false, error: "Пользователь не найден" });
+
+  if (role === "admin" || role === "user") {
+    if (user.role === "admin" && role === "user" && users.filter((u) => u.role === "admin").length <= 1) {
+      return res.status(400).json({ success: false, error: "Нельзя снять роль с последнего администратора" });
+    }
+    user.role = role;
+  }
+  if (dailyTokenLimit !== undefined) {
+    user.dailyTokenLimit = Math.max(0, Number(dailyTokenLimit) || 0);
+  }
+  if (newPassword) {
+    if (String(newPassword).length < 3) return res.status(400).json({ success: false, error: "Пароль не короче 3 символов" });
+    user.password = hashPassword(String(newPassword));
+  }
+  saveUsers(users);
+
+  // Force re-auth if role or password changed.
+  for (const [token, session] of ACTIVE_SESSIONS.entries()) {
+    if (session.username.toLowerCase() === user.username.toLowerCase()) ACTIVE_SESSIONS.delete(token);
+  }
+  res.json({ success: true, user: publicUser(user) });
+});
+
+app.post("/api/users/reset-usage", (req: any, res: any) => {
+  if (!requireAdmin(req, res)) return;
+  const users = loadUsers();
+  const user = users.find((u) => u.id === req.body.id);
+  if (!user) return res.status(404).json({ success: false, error: "Пользователь не найден" });
+  user.tokensUsedToday = 0;
+  user.usageDate = todayStr();
+  saveUsers(users);
+  res.json({ success: true, user: publicUser(user) });
+});
+
+app.post("/api/users/delete", (req: any, res: any) => {
+  if (!requireAdmin(req, res)) return;
+  const users = loadUsers();
+  const user = users.find((u) => u.id === req.body.id);
+  if (!user) return res.status(404).json({ success: false, error: "Пользователь не найден" });
+  if (user.username.toLowerCase() === req.user.username.toLowerCase()) {
+    return res.status(400).json({ success: false, error: "Нельзя удалить свою учётную запись" });
+  }
+  if (user.role === "admin" && users.filter((u) => u.role === "admin").length <= 1) {
+    return res.status(400).json({ success: false, error: "Нельзя удалить последнего администратора" });
+  }
+  saveUsers(users.filter((u) => u.id !== user.id));
+  for (const [token, session] of ACTIVE_SESSIONS.entries()) {
+    if (session.username.toLowerCase() === user.username.toLowerCase()) ACTIVE_SESSIONS.delete(token);
+  }
+  res.json({ success: true });
 });
 
 // Lightweight health probe for monitoring / load balancers (no auth).
@@ -738,7 +961,7 @@ app.post("/api/clickhouse/schema", async (req, res) => {
 });
 
 // 3. Execute query
-app.post("/api/clickhouse/query", async (req, res) => {
+app.post("/api/clickhouse/query", async (req: any, res) => {
   const { config, query, isDemo, question, schema, aiConfig } = req.body;
   if (!isReadOnlySql(query || "")) {
     return res.status(400).json({
@@ -749,6 +972,10 @@ app.post("/api/clickhouse/query", async (req, res) => {
   }
 
   if (isDemo) {
+    // Demo simulation uses AI tokens — gate it on the user's budget.
+    if (userIsOverBudget(req.user.username)) {
+      return res.status(429).json({ success: false, sql: query, error: TOKEN_LIMIT_MESSAGE, usage: getUserUsage(req.user.username) });
+    }
     // Simulate query execution over MOCK_DATASET using the configured AI provider.
     try {
       const demoSystemPrompt = withCustomSystemPrompt(
@@ -767,7 +994,8 @@ ${JSON.stringify(MOCK_DATASET.slice(0, 100))}
 
 Внимание: возвращайте ТОЛЬКО валидный JSON объект. Никаких markdown блоков, комментариев или лишнего текста вокруг JSON.`;
 
-      const resultObj = await requestAiJson(demoSystemPrompt, demoUserPrompt, aiConfig);
+      const { json: resultObj, tokens } = await requestAiJson(demoSystemPrompt, demoUserPrompt, aiConfig);
+      recordTokens(req.user.username, tokens);
 
       const columns = resultObj.meta?.map((m: any) => m.name) || [];
       const columnTypes: Record<string, string> = {};
@@ -782,7 +1010,8 @@ ${JSON.stringify(MOCK_DATASET.slice(0, 100))}
         columns,
         columnTypes,
         rowCount: resultObj.rows || resultObj.data?.length || 0,
-        elapsedMs: 45 // Simulated latency
+        elapsedMs: 45, // Simulated latency
+        usage: getUserUsage(req.user.username)
       });
     } catch (err: any) {
       // Fallback simple engine if the AI simulator fails or times out
@@ -810,7 +1039,9 @@ ${JSON.stringify(MOCK_DATASET.slice(0, 100))}
   if (result.success && capped.applied) {
     result.limitApplied = MAX_RESULT_ROWS;
   }
-  if (!result.success && question && schema && aiConfig) {
+  // AI auto-repair uses tokens — skip it when the user is over budget
+  // (executing the already-generated SQL above is not gated).
+  if (!result.success && question && schema && aiConfig && !userIsOverBudget(req.user.username)) {
     try {
       const repair = await repairSqlWithAi({
         question,
@@ -819,6 +1050,7 @@ ${JSON.stringify(MOCK_DATASET.slice(0, 100))}
         schema,
         aiConfig
       });
+      recordTokens(req.user.username, repair.tokens || 0);
 
       if (repair.sql && repair.sql.trim() !== query.trim()) {
         if (!isReadOnlySql(repair.sql)) {
@@ -831,6 +1063,7 @@ ${JSON.stringify(MOCK_DATASET.slice(0, 100))}
           ...repairedResult,
           sql: repair.sql,
           limitApplied: repairedResult.success && cappedRepair.applied ? MAX_RESULT_ROWS : undefined,
+          usage: getUserUsage(req.user.username),
           repair: {
             originalSql: query,
             originalError: result.error,
@@ -901,7 +1134,7 @@ function extractYandexResponsesText(json: any) {
   return chunks.join("\n").trim();
 }
 
-const callYandexGpt = async (systemPrompt: string, userPrompt: string, aiConfig: any): Promise<string> => {
+const callYandexGpt = async (systemPrompt: string, userPrompt: string, aiConfig: any): Promise<{ text: string; tokens: number }> => {
   const { yandexApiKey, yandexFolderId, yandexModel } = aiConfig || {};
   
   if (!yandexApiKey) {
@@ -947,7 +1180,10 @@ const callYandexGpt = async (systemPrompt: string, userPrompt: string, aiConfig:
       throw new Error(`Не удалось получить текст от Yandex Responses API. Тело ответа: ${JSON.stringify(json)}`);
     }
 
-    return textResult;
+    const tokens = Number(
+      json.usage?.total_tokens ?? ((json.usage?.input_tokens || 0) + (json.usage?.output_tokens || 0))
+    ) || 0;
+    return { text: textResult, tokens };
   }
 
   const url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion";
@@ -986,7 +1222,8 @@ const callYandexGpt = async (systemPrompt: string, userPrompt: string, aiConfig:
     throw new Error(`Не удалось получить ответ от YandexGPT. Тело ответа: ${JSON.stringify(json)}`);
   }
 
-  return textResult;
+  const tokens = Number(json.result?.usage?.totalTokens || 0) || 0;
+  return { text: textResult, tokens };
 };
 
 // Helper to extract JSON from any text block robustly
@@ -1009,10 +1246,10 @@ function extractAndParseJson(text: string): any {
   }
 }
 
-async function requestAiJson(systemPrompt: string, userPrompt: string, aiConfig: any) {
+async function requestAiJson(systemPrompt: string, userPrompt: string, aiConfig: any): Promise<{ json: any; tokens: number }> {
   if (aiConfig && aiConfig.provider === "yandexgpt") {
-    const responseText = await callYandexGpt(systemPrompt, userPrompt, aiConfig);
-    return extractAndParseJson(responseText);
+    const { text, tokens } = await callYandexGpt(systemPrompt, userPrompt, aiConfig);
+    return { json: extractAndParseJson(text), tokens };
   }
 
   const selectedModel = aiConfig?.geminiModel || GEMINI_MODEL;
@@ -1024,7 +1261,8 @@ async function requestAiJson(systemPrompt: string, userPrompt: string, aiConfig:
     }
   });
 
-  return JSON.parse(response.text?.trim() || "{}");
+  const tokens = Number((response as any).usageMetadata?.totalTokenCount || 0) || 0;
+  return { json: JSON.parse(response.text?.trim() || "{}"), tokens };
 }
 
 function withCustomSystemPrompt(basePrompt: string, aiConfig: any) {
@@ -1086,16 +1324,21 @@ Rules:
 Format:
 {"sql":"SELECT ...","explanation":"..."}`;
 
-  const parsed = await requestAiJson(systemPrompt, userPrompt, aiConfig);
+  const { json: parsed, tokens } = await requestAiJson(systemPrompt, userPrompt, aiConfig);
   return {
     sql: String(parsed.sql || "").trim(),
-    explanation: parsed.explanation ? String(parsed.explanation) : undefined
+    explanation: parsed.explanation ? String(parsed.explanation) : undefined,
+    tokens
   };
 }
 
 // 4. Generate SQL from natural language
-app.post("/api/gemini/generate-sql", async (req, res) => {
+app.post("/api/gemini/generate-sql", async (req: any, res) => {
   const { question, schema, isDemo, aiConfig, session, dialog } = req.body;
+
+  if (userIsOverBudget(req.user.username)) {
+    return res.status(429).json({ success: false, error: TOKEN_LIMIT_MESSAGE, usage: getUserUsage(req.user.username) });
+  }
 
   try {
     const allTables = schema?.tables || [];
@@ -1194,11 +1437,13 @@ Strict table rules:
   "explanation": "..."
 }`;
 
-    const result = await requestAiJson(systemPrompt, userPrompt, aiConfig);
+    const { json: result, tokens } = await requestAiJson(systemPrompt, userPrompt, aiConfig);
+    recordTokens(req.user.username, tokens);
     res.json({
       success: true,
       sql: result.sql,
       explanation: result.explanation,
+      usage: getUserUsage(req.user.username),
       session: {
         ...session,
         selectedDatabase,
@@ -1212,8 +1457,12 @@ Strict table rules:
 });
 
 // 5. Explain Results and recommend visual charts
-app.post("/api/gemini/explain-results", async (req, res) => {
+app.post("/api/gemini/explain-results", async (req: any, res) => {
   const { question, sql, resultRows, columns, aiConfig } = req.body;
+
+  if (userIsOverBudget(req.user.username)) {
+    return res.status(429).json({ success: false, error: TOKEN_LIMIT_MESSAGE, usage: getUserUsage(req.user.username) });
+  }
 
   try {
     const systemPrompt = withCustomSystemPrompt(
@@ -1256,23 +1505,9 @@ ${JSON.stringify(resultRows?.slice(0, 50))}
   }
 }`;
 
-    if (aiConfig && aiConfig.provider === "yandexgpt") {
-      const responseText = await callYandexGpt(systemPrompt, userPrompt, aiConfig);
-      const parsed = extractAndParseJson(responseText);
-      res.json({ success: true, analysis: parsed });
-    } else {
-      const selectedModel = aiConfig?.geminiModel || GEMINI_MODEL;
-      const response = await getGeminiClient().models.generateContent({
-        model: selectedModel,
-        contents: `${systemPrompt}\n\n${userPrompt}`,
-        config: {
-          responseMimeType: "application/json"
-        }
-      });
-
-      const parsed = JSON.parse(response.text?.trim() || "{}");
-      res.json({ success: true, analysis: parsed });
-    }
+    const { json: parsed, tokens } = await requestAiJson(systemPrompt, userPrompt, aiConfig);
+    recordTokens(req.user.username, tokens);
+    res.json({ success: true, analysis: parsed, usage: getUserUsage(req.user.username) });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message || err });
   }
