@@ -68,6 +68,44 @@ function readStoredJson<T>(key: string, fallback: T): T {
   }
 }
 
+// localStorage.setItem that never throws (e.g. on quota exceeded).
+function safeSetItem(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch (err) {
+    console.warn(`localStorage.setItem("${key}") failed:`, err);
+    return false;
+  }
+}
+
+// History keeps full results in memory, but only a slim copy is persisted so
+// large ClickHouse result sets can't overflow the ~5MB localStorage quota.
+const HISTORY_STORAGE_ITEMS = 20;
+const HISTORY_STORAGE_ROWS = 100;
+
+function persistHistory(history: QueryHistoryItem[]) {
+  const slim = history.slice(0, HISTORY_STORAGE_ITEMS).map((item) => ({
+    ...item,
+    result: item.result
+      ? {
+          ...item.result,
+          rows: Array.isArray(item.result.rows) ? item.result.rows.slice(0, HISTORY_STORAGE_ROWS) : item.result.rows
+        }
+      : item.result
+  }));
+
+  // Shrink progressively if we still hit the quota, instead of crashing.
+  for (let count = slim.length; count > 0; count--) {
+    if (safeSetItem("query_history", JSON.stringify(slim.slice(0, count)))) return;
+  }
+  try {
+    localStorage.removeItem("query_history");
+  } catch {
+    /* ignore */
+  }
+}
+
 export default function App() {
   const [aiSession, setAiSession] = useState<AiSessionState>(() => readSessionCookie());
 
@@ -162,18 +200,18 @@ export default function App() {
   // for the session only and is re-entered by the admin after a reload.
   useEffect(() => {
     const { password, ...configWithoutPassword } = config;
-    localStorage.setItem("clickhouse_config", JSON.stringify(configWithoutPassword));
-    localStorage.setItem("is_demo_mode", String(isDemoMode));
-    localStorage.setItem("ai_config", JSON.stringify(aiConfig));
+    safeSetItem("clickhouse_config", JSON.stringify(configWithoutPassword));
+    safeSetItem("is_demo_mode", String(isDemoMode));
+    safeSetItem("ai_config", JSON.stringify(aiConfig));
   }, [config, isDemoMode, aiConfig]);
 
-  // Save history to localStorage
+  // Save history to localStorage (slimmed + quota-safe)
   useEffect(() => {
-    localStorage.setItem("query_history", JSON.stringify(history));
+    persistHistory(history);
   }, [history]);
 
   useEffect(() => {
-    localStorage.setItem("analytics_enabled", String(analyticsEnabled));
+    safeSetItem("analytics_enabled", String(analyticsEnabled));
   }, [analyticsEnabled]);
 
   useEffect(() => {
